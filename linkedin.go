@@ -322,15 +322,24 @@ func parseProfile(body []byte, profileURL string) (*Profile, error) {
 			p.Headline = unescapeJSON(headline)
 		}
 
-		// Extract location if available
+		// Extract location from geoLocation field (LinkedIn now uses normalized references)
 		if loc := extractJSONField(section, "geoLocationName"); loc != "" {
 			p.Location = unescapeJSON(loc)
+		} else if geoLoc := extractGeoLocation(code, section); geoLoc != "" {
+			p.Location = geoLoc
 		}
 
 		// Try to find current employer from position data
 		if strings.Contains(section, `"companyName":`) {
 			if company := extractJSONField(section, "companyName"); company != "" {
 				p.CurrentEmployer = unescapeJSON(company)
+			}
+		}
+
+		// Fallback: parse company from headline if not found
+		if p.CurrentEmployer == "" && p.Headline != "" {
+			if company := parseCompanyFromHeadline(p.Headline); company != "" {
+				p.CurrentEmployer = company
 			}
 		}
 
@@ -511,6 +520,99 @@ func extractProfileSection(s, id string) string {
 	end := min(len(s), idx+5000)
 
 	return s[start:end]
+}
+
+// extractGeoLocation extracts location from the geoLocation field by resolving the geo URN.
+func extractGeoLocation(fullBlock, profileSection string) string {
+	// Look for geoLocation field with a geo URN reference
+	geoURN := extractJSONField(profileSection, "*geo")
+	if geoURN == "" {
+		return ""
+	}
+
+	// Clean the URN (remove quotes)
+	geoURN = strings.Trim(geoURN, `"`)
+
+	// Find the geo entity in the full block
+	// Search for the geo entity with this URN
+	searchStr := `"entityUrn":"` + geoURN + `"`
+	idx := strings.Index(fullBlock, searchStr)
+	if idx == -1 {
+		return ""
+	}
+
+	// Extract a small section AFTER the entityUrn to get just this entity's data
+	// Entities are typically within 1-2KB
+	start := idx
+	end := min(len(fullBlock), idx+2000)
+	geoSection := fullBlock[start:end]
+
+	// Extract defaultLocalizedName or defaultLocalizedNameWithoutCountryName
+	// These should appear right after the entityUrn in the same entity
+	if loc := extractJSONField(geoSection, "defaultLocalizedName"); loc != "" {
+		return unescapeJSON(loc)
+	}
+	if loc := extractJSONField(geoSection, "defaultLocalizedNameWithoutCountryName"); loc != "" {
+		return unescapeJSON(loc)
+	}
+
+	return ""
+}
+
+// parseCompanyFromHeadline attempts to extract company name from headline.
+// Common patterns: "Title at Company", "Title, Company", "Title @ Company".
+func parseCompanyFromHeadline(headline string) string {
+	company := ""
+
+	// Pattern: "Title at Company"
+	if idx := strings.Index(headline, " at "); idx != -1 {
+		company = strings.TrimSpace(headline[idx+4:])
+	} else if idx := strings.Index(headline, ", "); idx != -1 {
+		// Pattern: "Title, Company"
+		parts := strings.SplitN(headline, ", ", 2)
+		if len(parts) == 2 {
+			company = strings.TrimSpace(parts[1])
+		}
+	} else if idx := strings.Index(headline, " @ "); idx != -1 {
+		// Pattern: "Title @ Company"
+		company = strings.TrimSpace(headline[idx+3:])
+	}
+
+	if company == "" {
+		return ""
+	}
+
+	// Clean up the company name
+	// Remove trailing punctuation and descriptors
+	if commaIdx := strings.IndexAny(company, ",;|"); commaIdx != -1 {
+		company = strings.TrimSpace(company[:commaIdx])
+	}
+
+	// Handle "Google Chrome" -> "Google", "Facebook Reality Labs" -> "Facebook", etc.
+	// Extract the first significant word as the main company name
+	parts := strings.Fields(company)
+	if len(parts) > 0 {
+		// Common patterns: "Google Chrome", "Microsoft Azure", "Amazon Web Services"
+		// Take the first word as the primary company name
+		mainCompany := parts[0]
+
+		// But keep full names for multi-word companies that are not product divisions
+		// e.g., "Red Hat", "Goldman Sachs", "Morgan Stanley"
+		if len(parts) >= 2 {
+			secondWord := parts[1]
+			// Keep second word if it's part of the company name (not a product)
+			// Products often start with the company name: "Google Chrome", "Amazon Prime"
+			// Company names often have these patterns: "Red Hat", "Wells Fargo"
+			if secondWord == "Hat" || secondWord == "Sachs" || secondWord == "Stanley" ||
+				secondWord == "Fargo" || secondWord == "Lynch" || secondWord == "Brothers" {
+				return mainCompany + " " + secondWord
+			}
+		}
+
+		return mainCompany
+	}
+
+	return company
 }
 
 // tryFirefoxProfiles attempts to read cookies from Firefox profiles, including Developer Edition.
