@@ -25,20 +25,28 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/codeGROOVE-dev/sociopath/bilibili"
 	"github.com/codeGROOVE-dev/sociopath/bluesky"
 	"github.com/codeGROOVE-dev/sociopath/devto"
 	"github.com/codeGROOVE-dev/sociopath/generic"
 	"github.com/codeGROOVE-dev/sociopath/github"
 	"github.com/codeGROOVE-dev/sociopath/guess"
+	"github.com/codeGROOVE-dev/sociopath/habr"
 	"github.com/codeGROOVE-dev/sociopath/instagram"
 	"github.com/codeGROOVE-dev/sociopath/linkedin"
 	"github.com/codeGROOVE-dev/sociopath/linktree"
 	"github.com/codeGROOVE-dev/sociopath/mastodon"
+	"github.com/codeGROOVE-dev/sociopath/medium"
 	"github.com/codeGROOVE-dev/sociopath/profile"
+	"github.com/codeGROOVE-dev/sociopath/reddit"
 	"github.com/codeGROOVE-dev/sociopath/stackoverflow"
+	"github.com/codeGROOVE-dev/sociopath/substack"
 	"github.com/codeGROOVE-dev/sociopath/tiktok"
 	"github.com/codeGROOVE-dev/sociopath/twitter"
 	"github.com/codeGROOVE-dev/sociopath/vkontakte"
+	"github.com/codeGROOVE-dev/sociopath/weibo"
+	"github.com/codeGROOVE-dev/sociopath/youtube"
+	"github.com/codeGROOVE-dev/sociopath/zhihu"
 )
 
 type (
@@ -97,6 +105,7 @@ func Fetch(ctx context.Context, url string, opts ...Option) (*profile.Profile, e
 	// Try each platform's Match function in order of specificity
 	// Note: Order matters! More specific patterns should come before generic ones.
 	// TikTok must come before Mastodon because Mastodon matches /@username pattern.
+	// Substack must come before generic because it has specific domain pattern.
 	switch {
 	case linkedin.Match(url):
 		return fetchLinkedIn(ctx, url, cfg)
@@ -106,12 +115,28 @@ func Fetch(ctx context.Context, url string, opts ...Option) (*profile.Profile, e
 		return fetchLinktree(ctx, url, cfg)
 	case github.Match(url):
 		return fetchGitHub(ctx, url, cfg)
+	case medium.Match(url):
+		return fetchMedium(ctx, url, cfg)
+	case reddit.Match(url):
+		return fetchReddit(ctx, url, cfg)
+	case youtube.Match(url):
+		return fetchYouTube(ctx, url, cfg)
+	case substack.Match(url):
+		return fetchSubstack(ctx, url, cfg)
+	case weibo.Match(url):
+		return fetchWeibo(ctx, url, cfg)
+	case zhihu.Match(url):
+		return fetchZhihu(ctx, url, cfg)
+	case bilibili.Match(url):
+		return fetchBilibili(ctx, url, cfg)
 	case bluesky.Match(url):
 		return fetchBlueSky(ctx, url, cfg)
 	case devto.Match(url):
 		return fetchDevTo(ctx, url, cfg)
 	case stackoverflow.Match(url):
 		return fetchStackOverflow(ctx, url, cfg)
+	case habr.Match(url):
+		return fetchHabr(ctx, url, cfg)
 	case instagram.Match(url):
 		return fetchInstagram(ctx, url, cfg)
 	case tiktok.Match(url):
@@ -227,6 +252,22 @@ func fetchStackOverflow(ctx context.Context, url string, cfg *config) (*profile.
 	return client.Fetch(ctx, url)
 }
 
+func fetchHabr(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []habr.Option
+	if cfg.cache != nil {
+		opts = append(opts, habr.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, habr.WithLogger(cfg.logger))
+	}
+
+	client, err := habr.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
 func fetchInstagram(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
 	var opts []instagram.Option
 	if len(cfg.cookies) > 0 {
@@ -292,6 +333,121 @@ func fetchGitHub(ctx context.Context, url string, cfg *config) (*profile.Profile
 	}
 
 	client, err := github.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchMedium(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []medium.Option
+	if cfg.cache != nil {
+		opts = append(opts, medium.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, medium.WithLogger(cfg.logger))
+	}
+
+	client, err := medium.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchReddit(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []reddit.Option
+	if cfg.cache != nil {
+		opts = append(opts, reddit.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, reddit.WithLogger(cfg.logger))
+	}
+
+	client, err := reddit.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchYouTube(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []youtube.Option
+	if cfg.cache != nil {
+		opts = append(opts, youtube.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, youtube.WithLogger(cfg.logger))
+	}
+
+	client, err := youtube.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchSubstack(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []substack.Option
+	if cfg.cache != nil {
+		opts = append(opts, substack.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, substack.WithLogger(cfg.logger))
+	}
+
+	client, err := substack.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchWeibo(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []weibo.Option
+	if len(cfg.cookies) > 0 {
+		opts = append(opts, weibo.WithCookies(cfg.cookies))
+	}
+	if cfg.cache != nil {
+		opts = append(opts, weibo.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, weibo.WithLogger(cfg.logger))
+	}
+
+	client, err := weibo.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchZhihu(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []zhihu.Option
+	if cfg.cache != nil {
+		opts = append(opts, zhihu.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, zhihu.WithLogger(cfg.logger))
+	}
+
+	client, err := zhihu.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchBilibili(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []bilibili.Option
+	if cfg.cache != nil {
+		opts = append(opts, bilibili.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, bilibili.WithLogger(cfg.logger))
+	}
+
+	client, err := bilibili.New(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -431,21 +587,21 @@ func isSocialPlatform(url string) bool {
 		twitter.Match(url) ||
 		linktree.Match(url) ||
 		github.Match(url) ||
+		medium.Match(url) ||
+		reddit.Match(url) ||
+		youtube.Match(url) ||
+		substack.Match(url) ||
+		weibo.Match(url) ||
+		zhihu.Match(url) ||
+		bilibili.Match(url) ||
 		bluesky.Match(url) ||
 		devto.Match(url) ||
 		stackoverflow.Match(url) ||
+		habr.Match(url) ||
 		instagram.Match(url) ||
 		tiktok.Match(url) ||
 		vkontakte.Match(url) ||
-		mastodon.Match(url) ||
-		isHabrProfile(url)
-}
-
-// isHabrProfile returns true if the URL is a Habr user profile.
-func isHabrProfile(url string) bool {
-	lower := strings.ToLower(url)
-	return strings.Contains(lower, "habr.com/") && strings.Contains(lower, "/users/") ||
-		strings.Contains(lower, "habrahabr.ru/users/")
+		mastodon.Match(url)
 }
 
 // isSameDomainContactPage returns true if the link is a contact/about page on the same domain as baseURL.

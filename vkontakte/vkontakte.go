@@ -1,12 +1,19 @@
-// Package vkontakte provides VKontakte profile fetching (requires authentication).
+// Package vkontakte provides VKontakte profile fetching with optional authentication.
 package vkontakte
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/codeGROOVE-dev/sociopath/auth"
+	"github.com/codeGROOVE-dev/sociopath/htmlutil"
 	"github.com/codeGROOVE-dev/sociopath/profile"
 )
 
@@ -18,17 +25,22 @@ func Match(urlStr string) bool {
 	return strings.Contains(lower, "vk.com/")
 }
 
-// AuthRequired returns true because VKontakte requires authentication.
-func AuthRequired() bool { return true }
+// AuthRequired returns false because VKontakte doesn't strictly require auth, but cookies help with bot detection.
+func AuthRequired() bool { return false }
 
 // Client handles VKontakte requests.
-type Client struct{}
+type Client struct {
+	httpClient *http.Client
+	logger     *slog.Logger
+}
 
 // Option configures a Client.
 type Option func(*config)
 
 type config struct {
-	cookies map[string]string
+	cookies        map[string]string
+	logger         *slog.Logger
+	browserCookies bool
 }
 
 // WithCookies sets explicit cookie values.
@@ -36,24 +48,192 @@ func WithCookies(cookies map[string]string) Option {
 	return func(c *config) { c.cookies = cookies }
 }
 
+// WithBrowserCookies enables reading cookies from browser stores.
+func WithBrowserCookies() Option {
+	return func(c *config) { c.browserCookies = true }
+}
+
+// WithLogger sets a custom logger.
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *config) { c.logger = logger }
+}
+
 // New creates a VKontakte client.
-// Note: VKontakte scraping is not yet implemented.
+// Cookies are optional but help bypass bot detection.
 func New(ctx context.Context, opts ...Option) (*Client, error) {
-	cfg := &config{}
+	cfg := &config{logger: slog.Default()}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	if len(cfg.cookies) == 0 {
-		envVars := auth.EnvVarsForPlatform(platform)
-		return nil, fmt.Errorf("%w: VKontakte scraping requires authentication. Set %v or use WithCookies",
-			profile.ErrAuthRequired, envVars)
+	// Try to get cookies but don't fail if not available
+	var sources []auth.Source
+	if len(cfg.cookies) > 0 {
+		sources = append(sources, auth.NewStaticSource(cfg.cookies))
+	}
+	sources = append(sources, auth.EnvSource{})
+	if cfg.browserCookies {
+		sources = append(sources, auth.NewBrowserSource(cfg.logger))
 	}
 
-	return nil, fmt.Errorf("%w: VKontakte scraping not yet implemented", profile.ErrAuthRequired)
+	cookies, _ := auth.ChainSources(ctx, platform, sources...) //nolint:errcheck // cookies are optional
+
+	var httpClient *http.Client
+	if len(cookies) > 0 {
+		jar, err := auth.NewCookieJar("vk.com", cookies)
+		if err == nil {
+			httpClient = &http.Client{Jar: jar, Timeout: 10 * time.Second}
+			cfg.logger.InfoContext(ctx, "vkontakte client created with cookies", "cookie_count", len(cookies))
+		}
+	}
+
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+		cfg.logger.InfoContext(ctx, "vkontakte client created without cookies (may encounter bot detection)")
+	}
+
+	return &Client{
+		httpClient: httpClient,
+		logger:     cfg.logger,
+	}, nil
 }
 
 // Fetch retrieves a VKontakte profile.
-func (*Client) Fetch(_ context.Context, _ string) (*profile.Profile, error) {
-	return nil, fmt.Errorf("%w: VKontakte scraping not yet implemented", profile.ErrAuthRequired)
+func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, error) {
+	// Normalize URL
+	if !strings.HasPrefix(urlStr, "http") {
+		urlStr = "https://vk.com/" + strings.TrimPrefix(urlStr, "vk.com/")
+	}
+
+	c.logger.InfoContext(ctx, "fetching vkontakte profile", "url", urlStr)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("request creation failed: %w", err)
+	}
+
+	setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20)) // 5MB limit
+	if err != nil {
+		return nil, fmt.Errorf("reading response failed: %w", err)
+	}
+
+	return parseProfile(string(body), urlStr)
+}
+
+func setHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+	req.Header.Set("DNT", "1")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+}
+
+func parseProfile(html, url string) (*profile.Profile, error) {
+	// Check for bot detection page
+	if strings.Contains(html, "У вас большие запросы") || strings.Contains(html, "You are making too many requests") {
+		return nil, errors.New("VK bot detection triggered - try using browser cookies")
+	}
+
+	prof := &profile.Profile{
+		Platform: platform,
+		URL:      url,
+		Username: extractUsername(url),
+		Fields:   make(map[string]string),
+	}
+
+	// Extract name from title or meta tags
+	prof.Name = htmlutil.Title(html)
+	if prof.Name != "" {
+		// Clean up VK title format "Name | VK"
+		if idx := strings.Index(prof.Name, " | VK"); idx != -1 {
+			prof.Name = strings.TrimSpace(prof.Name[:idx])
+		}
+	}
+
+	// Extract bio/description
+	prof.Bio = htmlutil.Description(html)
+
+	// Extract birthday (Russian: День рождения)
+	birthdayPattern := regexp.MustCompile(`(?i)birthday[^>]*>([^<]+)</|день рождения[^>]*>([^<]+)</`)
+	if matches := birthdayPattern.FindStringSubmatch(html); len(matches) > 1 {
+		for i := 1; i < len(matches); i++ {
+			if matches[i] != "" {
+				birthday := strings.TrimSpace(matches[i])
+				if birthday != "" {
+					prof.Fields["birthday"] = birthday
+					break
+				}
+			}
+		}
+	}
+
+	// Extract city (Russian: Город)
+	cityPattern := regexp.MustCompile(`(?i)city[^>]*>([^<]+)</|город[^>]*>([^<]+)</`)
+	if matches := cityPattern.FindStringSubmatch(html); len(matches) > 1 {
+		for i := 1; i < len(matches); i++ {
+			if matches[i] != "" {
+				city := strings.TrimSpace(matches[i])
+				if city != "" {
+					prof.Location = city
+					break
+				}
+			}
+		}
+	}
+
+	// Extract education (Russian: Образование)
+	eduPattern := regexp.MustCompile(`(?i)education[^>]*>([^<]+)</|образование[^>]*>([^<]+)</|studied at[^>]*>([^<]+)</|учился[^>]*>([^<]+)</`)
+	if matches := eduPattern.FindStringSubmatch(html); len(matches) > 1 {
+		for i := 1; i < len(matches); i++ {
+			if matches[i] != "" {
+				edu := strings.TrimSpace(matches[i])
+				if edu != "" {
+					prof.Fields["education"] = edu
+					break
+				}
+			}
+		}
+	}
+
+	// Extract social links
+	prof.SocialLinks = htmlutil.SocialLinks(html)
+
+	// Filter out VK's own links
+	var filtered []string
+	for _, link := range prof.SocialLinks {
+		if !strings.Contains(link, "vk.com") {
+			filtered = append(filtered, link)
+		}
+	}
+	prof.SocialLinks = filtered
+
+	return prof, nil
+}
+
+func extractUsername(urlStr string) string {
+	// Remove protocol
+	urlStr = strings.TrimPrefix(urlStr, "https://")
+	urlStr = strings.TrimPrefix(urlStr, "http://")
+	urlStr = strings.TrimPrefix(urlStr, "www.")
+
+	// Extract vk.com/username pattern
+	re := regexp.MustCompile(`vk\.com/([^/?#]+)`)
+	if matches := re.FindStringSubmatch(urlStr); len(matches) > 1 {
+		return matches[1]
+	}
+
+	return ""
 }

@@ -357,10 +357,16 @@ func extractProfileSection(s, id string) string {
 
 func parseCompanyFromHeadline(headline string) string {
 	var company string
+
+	// Try patterns in order of specificity
+	// "Position at Company" or "Position @ Company"
 	if idx := strings.Index(headline, " at "); idx != -1 {
 		company = headline[idx+4:]
 	} else if idx := strings.Index(headline, " @ "); idx != -1 {
 		company = headline[idx+3:]
+	} else if idx := strings.Index(headline, "@"); idx != -1 {
+		// Handle "@Company" without space (e.g., "Engineering @Akuity")
+		company = headline[idx+1:]
 	} else if parts := strings.SplitN(headline, ", ", 2); len(parts) == 2 {
 		company = parts[1]
 	} else {

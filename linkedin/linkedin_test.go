@@ -61,6 +61,7 @@ func TestParseCompanyFromHeadline(t *testing.T) {
 	}{
 		{"Software Engineer at Google", "Google"},
 		{"CEO @ Startup", "Startup"},
+		{"Engineering @Akuity", "Akuity"},
 		{"Engineer, Acme Corp", "Acme Corp"},
 		{"Senior Developer at Meta, Inc.", "Meta"},
 		{"Just a person", ""},

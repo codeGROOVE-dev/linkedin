@@ -70,10 +70,9 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 	candidates := generateCandidates(usernames, knownURLs, knownPlatforms)
 	cfg.Logger.Info("generated guess candidates", "count", len(candidates))
 
-	// Fetch candidates concurrently with rate limiting
+	// Fetch candidates concurrently
 	var guessed []*profile.Profile
 	var mu sync.Mutex
-	sem := make(chan struct{}, 5) // Max 5 concurrent requests
 	var wg sync.WaitGroup
 
 	for _, c := range candidates {
@@ -84,8 +83,6 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 		wg.Add(1)
 		go func(candidate candidateURL) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
 			fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()

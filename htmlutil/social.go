@@ -133,31 +133,24 @@ var emailPattern = regexp.MustCompile(`[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z
 // ExtractEmailFromURL extracts an email address from URLs like "https://user@domain.com" or "http://email@example.com".
 // Returns the email address and true if found, empty string and false otherwise.
 func ExtractEmailFromURL(urlStr string) (string, bool) {
-	// Check if URL starts with http:// or https://
 	lower := strings.ToLower(urlStr)
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
 		return "", false
 	}
 
-	// Remove protocol
-	withoutProtocol := urlStr
+	// Remove protocol (case-insensitive)
+	withoutProtocol := lower
 	withoutProtocol = strings.TrimPrefix(withoutProtocol, "https://")
 	withoutProtocol = strings.TrimPrefix(withoutProtocol, "http://")
-	withoutProtocol = strings.TrimPrefix(withoutProtocol, "HTTPS://")
-	withoutProtocol = strings.TrimPrefix(withoutProtocol, "HTTP://")
 
-	// Check if what remains matches email pattern
+	// Extract email part (before any path or query)
+	if idx := strings.IndexAny(withoutProtocol, "/?#"); idx >= 0 {
+		withoutProtocol = withoutProtocol[:idx]
+	}
+
+	// Validate it's a proper email
 	if emailPattern.MatchString(withoutProtocol) {
-		// Extract just the email part (before any path or query)
-		email := withoutProtocol
-		if idx := strings.IndexAny(email, "/?#"); idx >= 0 {
-			email = email[:idx]
-		}
-
-		// Validate it's a proper email
-		if emailPattern.MatchString(email) {
-			return email, true
-		}
+		return withoutProtocol, true
 	}
 
 	return "", false
@@ -331,6 +324,8 @@ func isSocialPlatformURL(u string) bool {
 		"habr.com", "habrahabr.ru", "bsky.app", "fosstodon.org", "hachyderm.io",
 		"infosec.exchange", "mastodon.social", "mastodon.online",
 		"discord.com", "discordapp.com",
+		"medium.com", "reddit.com", "substack.com",
+		"weibo.com", "weibo.cn", "zhihu.com", "bilibili.com",
 	}
 	for _, p := range platforms {
 		if strings.Contains(lower, p) {
@@ -366,15 +361,24 @@ var socialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`https?://(?:www\.)?linkedin\.com/in/[\w%-]+/?`), // Allow URL-encoded chars like %C3%B6
 	regexp.MustCompile(`https?://(?:www\.)?instagram\.com/[\w.]+`),
 	regexp.MustCompile(`https?://(?:www\.)?facebook\.com/[\w.]+`),
-	regexp.MustCompile(`https?://(?:www\.)?youtube\.com/[\w/@-]+`),
+	regexp.MustCompile(`https?://(?:www\.)?youtube\.com/(?:@[\w-]+|c/[\w-]+|user/[\w-]+|channel/[\w-]+)`), // YouTube handles and channels
 	regexp.MustCompile(`https?://(?:www\.)?twitch\.tv/\w+`),
 	regexp.MustCompile(`https?://(?:www\.)?tiktok\.com/@\w+`),
-	regexp.MustCompile(`https?://(?:www\.)?github\.com/[\w-]+/?(?:[^\w-/]|$)`), // Profile only, not /user/project
+	regexp.MustCompile(`https?://(?:www\.)?github\.com/[\w-]+/?(?:[^\w-/]|$)`),     // Profile only, not /user/project
 	regexp.MustCompile(`https?://(?:www\.)?(?:discord|discordapp)\.com/users/\d+`), // Discord user profiles
-	regexp.MustCompile(`https?://(?:www\.)?vk\.com/[\w.]+`),                    // VKontakte
-	regexp.MustCompile(`https?://(?:www\.)?habr\.com/(?:ru/)?users/[\w-]+`),    // Habr (formerly Habrhabr)
-	regexp.MustCompile(`https?://habrahabr\.ru/users/[\w-]+`),                  // Old Habrhabr domain
-	regexp.MustCompile(`skype:[\w.-]+\??[\w=&]*`),                              // Skype links
+	regexp.MustCompile(`https?://(?:www\.)?vk\.com/[\w.]+`),                        // VKontakte
+	regexp.MustCompile(`https?://(?:www\.)?habr\.com/(?:ru/)?users/[\w-]+`),        // Habr (formerly Habrhabr)
+	regexp.MustCompile(`https?://habrahabr\.ru/users/[\w-]+`),                      // Old Habrhabr domain
+	regexp.MustCompile(`https?://(?:www\.)?medium\.com/@[\w-]+`),                   // Medium
+	regexp.MustCompile(`https?://(?:www\.)?reddit\.com/user/[\w-]+`),               // Reddit
+	regexp.MustCompile(`https?://(?:old\.)?reddit\.com/user/[\w-]+`),               // Old Reddit
+	regexp.MustCompile(`https?://[\w-]+\.substack\.com`),                           // Substack
+	regexp.MustCompile(`https?://(?:www\.)?weibo\.com/[\w-]+`),                     // Weibo
+	regexp.MustCompile(`https?://(?:www\.)?weibo\.cn/[\w-]+`),                      // Weibo mobile
+	regexp.MustCompile(`https?://(?:www\.)?zhihu\.com/people/[\w-]+`),              // Zhihu
+	regexp.MustCompile(`https?://space\.bilibili\.com/\d+`),                        // Bilibili
+	regexp.MustCompile(`https?://(?:www\.)?bilibili\.com/\d+`),                     // Bilibili short URL
+	regexp.MustCompile(`skype:[\w.-]+\??[\w=&]*`),                                  // Skype links
 	regexp.MustCompile(`https?://bsky\.app/profile/[\w.-]+`),
 	regexp.MustCompile(`https?://[\w.-]+\.social/@\w+`),
 	regexp.MustCompile(`https?://mastodon\.[\w.-]+/@\w+`),
