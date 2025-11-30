@@ -57,17 +57,69 @@ func TestExtractUsername(t *testing.T) {
 
 func TestStripHTML(t *testing.T) {
 	tests := []struct {
+		name  string
 		input string
 		want  string
 	}{
-		{"<p>Hello</p>", "Hello"},
-		{"<p>Hello</p><p>World</p>", "Hello\nWorld"},
-		{"Hello &amp; World", "Hello & World"},
-		{"<a href='url'>link</a>", "link"},
+		{
+			name:  "basic paragraph",
+			input: "<p>Hello</p>",
+			want:  "Hello",
+		},
+		{
+			name:  "multiple paragraphs",
+			input: "<p>Hello</p><p>World</p>",
+			want:  "Hello\nWorld",
+		},
+		{
+			name:  "HTML entities",
+			input: "Hello &amp; World",
+			want:  "Hello & World",
+		},
+		{
+			name:  "links",
+			input: "<a href='url'>link</a>",
+			want:  "link",
+		},
+		{
+			name:  "br tag",
+			input: "Line 1<br>Line 2",
+			want:  "Line 1\nLine 2",
+		},
+		{
+			name:  "br self-closing",
+			input: "Line 1<br/>Line 2",
+			want:  "Line 1\nLine 2",
+		},
+		{
+			name:  "br with space",
+			input: "Line 1<br />Line 2",
+			want:  "Line 1\nLine 2",
+		},
+		{
+			name:  "div tags",
+			input: "<div>Block 1</div><div>Block 2</div>",
+			want:  "Block 1\nBlock 2",
+		},
+		{
+			name:  "complex bio with multiple breaks",
+			input: "KD4UHP - based out of Carrboro, NC<br>founder &amp; CEO @ codeGROOVE<br />former Director of Security @ Chainguard &amp; Xoogler<br/>#unix #infosec #bikes",
+			want:  "KD4UHP - based out of Carrboro, NC\nfounder & CEO @ codeGROOVE\nformer Director of Security @ Chainguard & Xoogler\n#unix #infosec #bikes",
+		},
+		{
+			name:  "empty lines removed",
+			input: "<p>Line 1</p><p></p><p>Line 2</p>",
+			want:  "Line 1\nLine 2",
+		},
+		{
+			name:  "whitespace normalized",
+			input: "<p>  Line 1  </p><br/><p>   Line 2   </p>",
+			want:  "Line 1\nLine 2",
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got := stripHTML(tt.input)
 			if got != tt.want {
 				t.Errorf("stripHTML(%q) = %q, want %q", tt.input, got, tt.want)

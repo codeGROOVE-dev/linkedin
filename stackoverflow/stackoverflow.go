@@ -125,6 +125,15 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 		Fields:        make(map[string]string),
 	}
 
+	// Extract name from title - format: "User Jon Skeet - Stack Overflow"
+	title := htmlutil.Title(content)
+	if strings.HasPrefix(title, "User ") {
+		name := strings.TrimPrefix(title, "User ")
+		if idx := strings.Index(name, " - "); idx != -1 {
+			p.Name = strings.TrimSpace(name[:idx])
+		}
+	}
+
 	// Extract location
 	locPattern := regexp.MustCompile(`<div[^>]*class="[^"]*wmx2[^"]*truncate[^"]*"[^>]*title="([^"]+)"`)
 	if m := locPattern.FindStringSubmatch(content); len(m) > 1 {
@@ -167,7 +176,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 func extractUsername(urlStr string) string {
 	re := regexp.MustCompile(`/users/\d+/([^/?]+)`)
 	if m := re.FindStringSubmatch(urlStr); len(m) > 1 {
-		return strings.ReplaceAll(m[1], "-", " ")
+		return m[1]
 	}
 	return ""
 }

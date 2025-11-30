@@ -36,8 +36,8 @@ func TestExtractUsername(t *testing.T) {
 		want string
 	}{
 		{"https://stackoverflow.com/users/12345/johndoe", "johndoe"},
-		{"https://stackoverflow.com/users/12345/john-doe", "john doe"},
-		{"https://stackoverflow.com/users/12345/john-doe?tab=profile", "john doe"},
+		{"https://stackoverflow.com/users/12345/john-doe", "john-doe"},
+		{"https://stackoverflow.com/users/12345/john-doe?tab=profile", "john-doe"},
 		{"https://example.com", ""},
 	}
 

@@ -295,11 +295,30 @@ func extractUsername(path string) string {
 
 func stripHTML(s string) string {
 	s = html.UnescapeString(s)
+	// Replace common block-level tags with newlines
 	s = strings.ReplaceAll(s, "<br>", "\n")
 	s = strings.ReplaceAll(s, "<br/>", "\n")
+	s = strings.ReplaceAll(s, "<br />", "\n")
 	s = strings.ReplaceAll(s, "</p>", "\n")
+	s = strings.ReplaceAll(s, "</div>", "\n")
+
+	// Remove all other HTML tags
 	re := regexp.MustCompile(`<[^>]+>`)
-	return strings.TrimSpace(re.ReplaceAllString(s, ""))
+	s = re.ReplaceAllString(s, "")
+
+	// Normalize whitespace: replace multiple newlines with single newlines,
+	// but preserve intentional line breaks by converting to spaces
+	lines := strings.Split(s, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+
+	// Join with newlines to preserve paragraph structure
+	return strings.Join(cleaned, "\n")
 }
 
 func extractURLs(htmlContent string) []string {

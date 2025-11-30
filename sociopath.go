@@ -45,9 +45,7 @@ import (
 	"github.com/codeGROOVE-dev/sociopath/tiktok"
 	"github.com/codeGROOVE-dev/sociopath/twitter"
 	"github.com/codeGROOVE-dev/sociopath/vkontakte"
-	"github.com/codeGROOVE-dev/sociopath/weibo"
 	"github.com/codeGROOVE-dev/sociopath/youtube"
-	"github.com/codeGROOVE-dev/sociopath/zhihu"
 )
 
 type (
@@ -124,10 +122,6 @@ func Fetch(ctx context.Context, url string, opts ...Option) (*profile.Profile, e
 		return fetchYouTube(ctx, url, cfg)
 	case substack.Match(url):
 		return fetchSubstack(ctx, url, cfg)
-	case weibo.Match(url):
-		return fetchWeibo(ctx, url, cfg)
-	case zhihu.Match(url):
-		return fetchZhihu(ctx, url, cfg)
 	case bilibili.Match(url):
 		return fetchBilibili(ctx, url, cfg)
 	case bluesky.Match(url):
@@ -407,41 +401,6 @@ func fetchSubstack(ctx context.Context, url string, cfg *config) (*profile.Profi
 	return client.Fetch(ctx, url)
 }
 
-func fetchWeibo(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
-	var opts []weibo.Option
-	if len(cfg.cookies) > 0 {
-		opts = append(opts, weibo.WithCookies(cfg.cookies))
-	}
-	if cfg.cache != nil {
-		opts = append(opts, weibo.WithHTTPCache(cfg.cache))
-	}
-	if cfg.logger != nil {
-		opts = append(opts, weibo.WithLogger(cfg.logger))
-	}
-
-	client, err := weibo.New(ctx, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return client.Fetch(ctx, url)
-}
-
-func fetchZhihu(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
-	var opts []zhihu.Option
-	if cfg.cache != nil {
-		opts = append(opts, zhihu.WithHTTPCache(cfg.cache))
-	}
-	if cfg.logger != nil {
-		opts = append(opts, zhihu.WithLogger(cfg.logger))
-	}
-
-	client, err := zhihu.New(ctx, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return client.Fetch(ctx, url)
-}
-
 func fetchBilibili(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
 	var opts []bilibili.Option
 	if cfg.cache != nil {
@@ -477,6 +436,8 @@ func fetchGeneric(ctx context.Context, url string, cfg *config) (*profile.Profil
 // FetchRecursive fetches a profile and recursively fetches all social links found.
 // It returns all discovered profiles, avoiding duplicates by tracking visited URLs.
 // Only links that match known social media platforms are followed.
+// For platforms with single-account-per-person assumption (GitHub, LinkedIn, Twitter, etc.),
+// it skips recursing into additional profiles from the same platform.
 func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile.Profile, error) {
 	cfg := &config{logger: slog.Default()}
 	for _, opt := range opts {
@@ -485,6 +446,7 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 
 	visited := make(map[string]bool)
 	var profiles []*profile.Profile
+	initialPlatform := "" // Track the platform we started from
 
 	type queueItem struct {
 		url   string
@@ -527,6 +489,11 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 		}
 		profiles = append(profiles, p)
 
+		// Remember the platform we started from (depth 0)
+		if item.depth == 0 {
+			initialPlatform = p.Platform
+		}
+
 		// Don't crawl further if we've hit max depth
 		if item.depth >= maxDepth {
 			continue
@@ -541,6 +508,11 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 		// Queue social links for crawling
 		for _, link := range p.SocialLinks {
 			if !visited[normalizeURL(link)] && isValidProfileURL(link) {
+				// Skip links that are the same platform as our initial URL (single-account-per-person platforms)
+				if isSingleAccountPlatform(initialPlatform) && platformMatches(link, initialPlatform) {
+					continue
+				}
+
 				// For generic pages, only follow if it's a known social platform or same-domain contact/about page
 				if !onlyKnownPlatforms || isSocialPlatform(link) || isSameDomainContactPage(link, item.url) {
 					linksToQueue = append(linksToQueue, link)
@@ -595,8 +567,8 @@ func isSocialPlatform(url string) bool {
 		reddit.Match(url) ||
 		youtube.Match(url) ||
 		substack.Match(url) ||
-		weibo.Match(url) ||
-		zhihu.Match(url) ||
+		strings.Contains(strings.ToLower(url), "weibo.com") ||
+		strings.Contains(strings.ToLower(url), "zhihu.com") ||
 		bilibili.Match(url) ||
 		bluesky.Match(url) ||
 		devto.Match(url) ||
@@ -665,6 +637,50 @@ func isLikelySocialURL(key, value string) bool {
 		}
 	}
 	return false
+}
+
+// isSingleAccountPlatform returns true for platforms where users typically have a single account.
+func isSingleAccountPlatform(platform string) bool {
+	switch platform {
+	case "github", "linkedin", "twitter", "reddit", "youtube",
+		"stackoverflow", "bluesky", "mastodon", "medium",
+		"instagram", "tiktok", "vkontakte":
+		return true
+	default:
+		return false
+	}
+}
+
+// platformMatches checks if a URL matches the given platform name.
+func platformMatches(url, platform string) bool {
+	switch platform {
+	case "github":
+		return github.Match(url)
+	case "linkedin":
+		return linkedin.Match(url)
+	case "twitter":
+		return twitter.Match(url)
+	case "reddit":
+		return reddit.Match(url)
+	case "youtube":
+		return youtube.Match(url)
+	case "stackoverflow":
+		return stackoverflow.Match(url)
+	case "bluesky":
+		return bluesky.Match(url)
+	case "mastodon":
+		return mastodon.Match(url)
+	case "medium":
+		return medium.Match(url)
+	case "instagram":
+		return instagram.Match(url)
+	case "tiktok":
+		return tiktok.Match(url)
+	case "vkontakte":
+		return vkontakte.Match(url)
+	default:
+		return false
+	}
 }
 
 // FetchRecursiveWithGuess is like FetchRecursive but also guesses related profiles

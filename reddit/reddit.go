@@ -115,7 +115,7 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 		}
 	}
 
-	return parseProfile(content, urlStr, username)
+	return parseProfile(content, normalizedURL, username)
 }
 
 func parseProfile(html, url, username string) (*profile.Profile, error) { //nolint:unparam // error return part of interface pattern

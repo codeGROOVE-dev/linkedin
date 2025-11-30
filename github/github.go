@@ -117,17 +117,19 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 		return nil, err
 	}
 
-	// Also fetch HTML to extract rel="me" links (Mastodon, etc.)
-	htmlLinks := c.fetchHTMLLinks(ctx, urlStr)
+	// Fetch HTML to extract rel="me" links and README
+	htmlContent, htmlLinks := c.fetchHTML(ctx, urlStr)
 	p.SocialLinks = append(p.SocialLinks, htmlLinks...)
 
-	// Fetch user's README if available
-	readme := c.fetchREADME(ctx, username)
-	if readme != "" {
-		p.Unstructured = readme
-		// Extract social links from README markdown
-		readmeLinks := htmlutil.SocialLinks(readme)
-		p.SocialLinks = append(p.SocialLinks, readmeLinks...)
+	// Extract README from HTML if available
+	if htmlContent != "" {
+		readme := extractREADME(htmlContent)
+		if readme != "" {
+			p.Unstructured = readme
+			// Extract social links from README
+			readmeLinks := htmlutil.SocialLinks(readme)
+			p.SocialLinks = append(p.SocialLinks, readmeLinks...)
+		}
 	}
 
 	// Deduplicate and filter out same-platform links (GitHub to GitHub)
@@ -177,37 +179,39 @@ func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profil
 	return parseJSON(body, urlStr, username)
 }
 
-func (c *Client) fetchHTMLLinks(ctx context.Context, urlStr string) []string {
+func (c *Client) fetchHTML(ctx context.Context, urlStr string) (content string, links []string) {
 	// Check cache
 	if c.cache != nil {
 		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
-			return extractSocialLinks(string(data))
+			content = string(data)
+			links = extractSocialLinks(content)
+			return content, links
 		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		c.logger.Debug("failed to create HTML request", "error", err)
-		return nil
+		return "", nil
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.logger.Debug("failed to fetch HTML", "error", err)
-		return nil
+		return "", nil
 	}
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
 
 	if resp.StatusCode != http.StatusOK {
 		c.logger.Debug("HTML fetch returned non-200", "status", resp.StatusCode)
-		return nil
+		return "", nil
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		c.logger.Debug("failed to read HTML body", "error", err)
-		return nil
+		return "", nil
 	}
 
 	// Cache response (async, errors intentionally ignored)
@@ -215,62 +219,28 @@ func (c *Client) fetchHTMLLinks(ctx context.Context, urlStr string) []string {
 		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
-	return extractSocialLinks(string(body))
+	content = string(body)
+	links = extractSocialLinks(content)
+	return content, links
 }
 
-func (c *Client) fetchREADME(ctx context.Context, username string) string {
-	// Try main branch first, then master as fallback
-	branches := []string{"main", "master"}
-
-	for _, branch := range branches {
-		readmeURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/refs/heads/%s/README.md", username, username, branch)
-
-		// Check cache
-		if c.cache != nil {
-			if data, _, _, found := c.cache.Get(ctx, readmeURL); found {
-				return string(data)
-			}
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, readmeURL, http.NoBody)
-		if err != nil {
-			c.logger.Debug("failed to create README request", "error", err, "branch", branch)
-			continue
-		}
-		req.Header.Set("User-Agent", "sociopath/1.0")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			c.logger.Debug("failed to fetch README", "error", err, "branch", branch)
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close() //nolint:errcheck // error ignored intentionally
-			c.logger.Debug("README fetch returned non-200", "status", resp.StatusCode, "branch", branch)
-			continue
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		_ = resp.Body.Close() //nolint:errcheck // error ignored intentionally
-		if err != nil {
-			c.logger.Debug("failed to read README body", "error", err, "branch", branch)
-			continue
-		}
-
-		readme := string(body)
-
-		// Cache response (async, errors intentionally ignored)
-		if c.cache != nil {
-			_ = c.cache.SetAsync(ctx, readmeURL, body, "", nil) //nolint:errcheck // async, error ignored
-		}
-
-		c.logger.Debug("successfully fetched README", "branch", branch, "size", len(readme))
-		return readme
+// extractREADME extracts and converts the README from GitHub profile HTML to markdown.
+func extractREADME(htmlContent string) string {
+	// GitHub embeds README in <article class="markdown-body entry-content ...">
+	// Extract everything from the opening tag to the closing </article>
+	articlePattern := regexp.MustCompile(`(?s)<article[^>]*class="[^"]*markdown-body[^"]*"[^>]*>(.*?)</article>`)
+	matches := articlePattern.FindStringSubmatch(htmlContent)
+	if len(matches) < 2 {
+		return ""
 	}
 
-	c.logger.Debug("no README found for user", "username", username)
-	return ""
+	readmeHTML := matches[1]
+	if strings.TrimSpace(readmeHTML) == "" {
+		return ""
+	}
+
+	// Convert HTML to markdown
+	return htmlutil.ToMarkdown(readmeHTML)
 }
 
 // extractSocialLinks extracts social media links from HTML, focusing on rel="me" verified links.

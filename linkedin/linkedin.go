@@ -210,6 +210,9 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 	blocks := extractCodeBlocks(content)
 	var fallbackData *profileData
 
+	// Concatenate all blocks for location/pronoun extraction
+	allBlocksContent := strings.Join(blocks, "\n")
+
 	for _, code := range blocks {
 		if !strings.Contains(code, `"publicIdentifier":`) {
 			continue
@@ -231,7 +234,7 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 		data := extractProfileData(section)
 		if data.name != "" {
 			if exact {
-				applyProfileData(prof, data, code)
+				applyProfileData(prof, data, allBlocksContent)
 				break
 			}
 			if fallbackData == nil {
@@ -241,7 +244,7 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 	}
 
 	if prof.Name == "" && fallbackData != nil {
-		applyProfileData(prof, *fallbackData, content)
+		applyProfileData(prof, *fallbackData, allBlocksContent)
 	}
 
 	// Fallback to meta tags
@@ -288,8 +291,13 @@ func extractProfileData(section string) profileData {
 	first := extractJSONField(section, "firstName")
 	last := extractJSONField(section, "lastName")
 
-	data := profileData{
-		headline: unescapeJSON(extractJSONField(section, "headline")),
+	data := profileData{}
+
+	// Try 'headline' first (from Profile object), then 'occupation' (from MiniProfile object)
+	if headline := extractJSONField(section, "headline"); headline != "" {
+		data.headline = unescapeJSON(headline)
+	} else if occupation := extractJSONField(section, "occupation"); occupation != "" {
+		data.headline = unescapeJSON(occupation)
 	}
 
 	if first != "" {
@@ -299,6 +307,7 @@ func extractProfileData(section string) profileData {
 		}
 	}
 
+	// Try 'geoLocationName' (old format) or look for geoLocation reference
 	if loc := extractJSONField(section, "geoLocationName"); loc != "" {
 		data.location = unescapeJSON(loc)
 	}
@@ -335,9 +344,18 @@ func applyProfileData(p *profile.Profile, data profileData, fullContent string) 
 		}
 	}
 
+	// Extract pronouns - look for actual pronoun values (HE_HIM, SHE_HER, THEY_THEM), not schema definitions
+	re := regexp.MustCompile(`"standardizedPronoun"\s*:\s*"(HE_HIM|SHE_HER|THEY_THEM)"`)
+	if m := re.FindStringSubmatch(fullContent); len(m) > 1 {
+		pronouns := convertStandardizedPronoun(m[1])
+		if pronouns != "" {
+			p.Fields["pronouns"] = pronouns
+		}
+	}
+
+	// Location extraction - prefer longer location names (city, state, country) over short ones (just country)
 	if p.Location == "" {
-		// Look for geo entity with defaultLocalizedName
-		re := regexp.MustCompile(`"defaultLocalizedName":"([^"]+)"`)
+		re := regexp.MustCompile(`"defaultLocalizedName"\s*:\s*"([^"]{15,})"`)
 		if m := re.FindStringSubmatch(fullContent); len(m) > 1 {
 			p.Location = unescapeJSON(m[1])
 		}
@@ -471,4 +489,17 @@ func filterSamePlatformLinks(links []string) []string {
 		}
 	}
 	return filtered
+}
+
+func convertStandardizedPronoun(code string) string {
+	switch code {
+	case "HE_HIM":
+		return "He/Him"
+	case "SHE_HER":
+		return "She/Her"
+	case "THEY_THEM":
+		return "They/Them"
+	default:
+		return ""
+	}
 }

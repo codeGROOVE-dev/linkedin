@@ -53,6 +53,18 @@ func ToMarkdown(htmlContent string) string {
 	content = html.UnescapeString(content)
 
 	// Clean up excessive whitespace
+	// First, split by newlines and trim each line
+	lines := strings.Split(content, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	content = strings.Join(cleaned, "\n")
+
+	// Replace multiple consecutive newlines with at most two newlines
 	content = multiNewlinePattern.ReplaceAllString(content, "\n\n")
 	content = strings.TrimSpace(content)
 

@@ -11,7 +11,7 @@ func TestToMarkdown(t *testing.T) {
 		{
 			name: "headers",
 			html: "<h1>Title</h1><h2>Subtitle</h2>",
-			want: "# Title\n\n## Subtitle",
+			want: "# Title\n## Subtitle",
 		},
 		{
 			name: "paragraph",
@@ -36,7 +36,7 @@ func TestToMarkdown(t *testing.T) {
 		{
 			name: "removes script",
 			html: "<p>before</p><script>alert('x')</script><p>after</p>",
-			want: "before\n\nafter",
+			want: "before\nafter",
 		},
 		{
 			name: "removes style",
