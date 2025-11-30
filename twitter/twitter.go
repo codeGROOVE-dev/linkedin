@@ -34,11 +34,11 @@ func IsValidUsername(username string) bool {
 		return false
 	}
 	for _, r := range username {
-		isLower := r >= 'a' && r <= 'z'
-		isUpper := r >= 'A' && r <= 'Z'
-		isDigit := r >= '0' && r <= '9'
-		isUnderscore := r == '_'
-		if !isLower && !isUpper && !isDigit && !isUnderscore {
+		lower := r >= 'a' && r <= 'z'
+		upper := r >= 'A' && r <= 'Z'
+		digit := r >= '0' && r <= '9'
+		underscore := r == '_'
+		if !lower && !upper && !digit && !underscore {
 			return false
 		}
 	}
@@ -306,6 +306,7 @@ func (c *Client) parseProfile(body []byte, profileURL, targetUsername string) (*
 		p.URL = profileURL
 		p.Authenticated = true
 		p.SocialLinks = htmlutil.SocialLinks(content)
+		p.SocialLinks = filterSamePlatformLinks(p.SocialLinks)
 		return p, nil
 	}
 
@@ -322,6 +323,7 @@ func (c *Client) parseProfile(body []byte, profileURL, targetUsername string) (*
 	p.URL = profileURL
 	p.Authenticated = true
 	p.SocialLinks = htmlutil.SocialLinks(content)
+	p.SocialLinks = filterSamePlatformLinks(p.SocialLinks)
 
 	return p, nil
 }
@@ -620,4 +622,15 @@ func parseGraphQLResponse(body []byte, profileURL, _ string) (*profile.Profile, 
 	}
 
 	return p, nil
+}
+
+func filterSamePlatformLinks(links []string) []string {
+	var filtered []string
+	for _, link := range links {
+		// Skip Twitter/X URLs
+		if !Match(link) {
+			filtered = append(filtered, link)
+		}
+	}
+	return filtered
 }

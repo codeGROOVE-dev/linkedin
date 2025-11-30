@@ -48,3 +48,25 @@ func TestValidateURL(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanEmail(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"website@nospamtpope.org", "website@tpope.org"},
+		{"contact@NOSPAMexample.com", "contact@example.com"},
+		{"user@NoSpAmtest.org", "user@test.org"},
+		{"normal@example.com", "normal@example.com"},
+		{"test@nospam.nospam.org", "test@.nospam.org"}, // Only removes first occurrence
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := cleanEmail(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanEmail(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

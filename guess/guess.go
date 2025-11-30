@@ -60,12 +60,14 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 	// Build set of already known URLs to avoid duplicates
 	knownURLs := make(map[string]bool)
+	knownPlatforms := make(map[string]bool)
 	for _, p := range known {
 		knownURLs[normalizeURL(p.URL)] = true
+		knownPlatforms[p.Platform] = true
 	}
 
 	// Generate candidate URLs
-	candidates := generateCandidates(usernames, knownURLs)
+	candidates := generateCandidates(usernames, knownURLs, knownPlatforms)
 	cfg.Logger.Info("generated guess candidates", "count", len(candidates))
 
 	// Fetch candidates concurrently with rate limiting
@@ -225,7 +227,7 @@ func isNumeric(s string) bool {
 	return s != ""
 }
 
-func generateCandidates(usernames []string, knownURLs map[string]bool) []candidateURL {
+func generateCandidates(usernames []string, knownURLs map[string]bool, knownPlatforms map[string]bool) []candidateURL {
 	var candidates []candidateURL
 
 	for _, username := range usernames {
@@ -241,15 +243,17 @@ func generateCandidates(usernames []string, knownURLs map[string]bool) []candida
 			}
 		}
 
-		// Add Mastodon servers
-		for _, server := range mastodonServers {
-			url := "https://" + server + "/@" + username
-			if !knownURLs[normalizeURL(url)] {
-				candidates = append(candidates, candidateURL{
-					url:      url,
-					username: username,
-					platform: "mastodon",
-				})
+		// Add Mastodon servers only if we don't already have a Mastodon profile
+		if !knownPlatforms["mastodon"] {
+			for _, server := range mastodonServers {
+				url := "https://" + server + "/@" + username
+				if !knownURLs[normalizeURL(url)] {
+					candidates = append(candidates, candidateURL{
+						url:      url,
+						username: username,
+						platform: "mastodon",
+					})
+				}
 			}
 		}
 	}
@@ -262,7 +266,10 @@ func normalizeURL(url string) string {
 	url = strings.TrimPrefix(url, "https://")
 	url = strings.TrimPrefix(url, "http://")
 	url = strings.TrimPrefix(url, "www.")
-	return strings.ToLower(url)
+	url = strings.ToLower(url)
+	// Normalize x.com to twitter.com (they're the same platform)
+	url = strings.Replace(url, "x.com/", "twitter.com/", 1)
+	return url
 }
 
 // scoreMatch calculates confidence that a guessed profile belongs to the same person.
@@ -273,47 +280,95 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, targetUserna
 
 	// Check username match (base match since we guessed based on username)
 	guessedUser := strings.ToLower(guessed.Username)
+
+	// Check if username has digits (more unique)
+	hasDigits := false
+	for _, c := range targetUsername {
+		if c >= '0' && c <= '9' {
+			hasDigits = true
+			break
+		}
+	}
+
+	// Username match scoring - lower confidence for short usernames without digits
 	if guessedUser == targetUsername {
-		score += 0.3
+		if len(targetUsername) < 6 && !hasDigits {
+			// Short username without digits gets minimal base score
+			score += 0.1
+		} else {
+			score += 0.3
+		}
 		matches = append(matches, "username:exact")
 	} else if strings.Contains(guessedUser, targetUsername) || strings.Contains(targetUsername, guessedUser) {
-		score += 0.2
+		score += 0.1
 		matches = append(matches, "username:substring")
 	}
+
+	// Track best signals (don't accumulate across profiles)
+	var hasLink bool
+	var bestNameScore, bestLocScore, bestBioScore float64
+	var hasWebsiteMatch bool
 
 	// Check against each known profile for additional signals
 	for _, k := range known {
 		// Check for links between profiles (highest signal)
 		if hasLinkTo(guessed, k) || hasLinkTo(k, guessed) {
-			score += 0.5
-			matches = append(matches, "linked:"+k.Platform)
+			if !hasLink {
+				hasLink = true
+				matches = append(matches, "linked:"+k.Platform)
+			}
 		}
 
-		// Check name similarity (high signal)
-		if nameScore := scoreName(guessed.Name, k.Name); nameScore > 0 {
-			score += nameScore * 0.3
-			matches = append(matches, "name:"+k.Platform)
+		// Check name similarity (high signal) - track best score
+		if nameScore := scoreName(guessed.Name, k.Name); nameScore > bestNameScore {
+			if bestNameScore == 0 {
+				matches = append(matches, "name:"+k.Platform)
+			}
+			bestNameScore = nameScore
 		}
 
-		// Check location match (medium signal)
-		if locScore := scoreLocation(guessed.Location, k.Location); locScore > 0 {
-			score += locScore * 0.15
-			matches = append(matches, "location:"+k.Platform)
+		// Check location match (medium signal) - track best score
+		if locScore := scoreLocation(guessed.Location, k.Location); locScore > bestLocScore {
+			if bestLocScore == 0 {
+				matches = append(matches, "location:"+k.Platform)
+			}
+			bestLocScore = locScore
 		}
 
-		// Check bio word overlap (lower signal)
-		if bioScore := scoreBioOverlap(guessed.Bio, k.Bio); bioScore > 0 {
-			score += bioScore * 0.1
-			matches = append(matches, "bio:"+k.Platform)
+		// Check bio word overlap (lower signal) - track best score
+		if bioScore := scoreBioOverlap(guessed.Bio, k.Bio); bioScore > bestBioScore {
+			if bestBioScore == 0 {
+				matches = append(matches, "bio:"+k.Platform)
+			}
+			bestBioScore = bioScore
 		}
 
 		// Check website match (high signal)
 		if guessed.Website != "" && k.Website != "" {
 			if normalizeURL(guessed.Website) == normalizeURL(k.Website) {
-				score += 0.4
-				matches = append(matches, "website:"+k.Platform)
+				if !hasWebsiteMatch {
+					hasWebsiteMatch = true
+					matches = append(matches, "website:"+k.Platform)
+				}
 			}
 		}
+	}
+
+	// Add best signals to score (only once, not per profile)
+	if hasLink {
+		score += 0.5
+	}
+	if bestNameScore > 0 {
+		score += bestNameScore * 0.3
+	}
+	if bestLocScore > 0 {
+		score += bestLocScore * 0.15
+	}
+	if bestBioScore > 0 {
+		score += bestBioScore * 0.1
+	}
+	if hasWebsiteMatch {
+		score += 0.4
 	}
 
 	// Cap at 1.0

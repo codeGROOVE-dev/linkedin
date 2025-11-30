@@ -11,6 +11,7 @@ func SocialLinks(htmlContent string) []string {
 	var urls []string
 	seen := make(map[string]bool)
 
+	// Extract URLs matching social media patterns
 	for _, pattern := range socialPatterns {
 		matches := pattern.FindAllString(htmlContent, -1)
 		for _, u := range matches {
@@ -19,6 +20,70 @@ func SocialLinks(htmlContent string) []string {
 			if u != "" && !seen[u] && isValidProfileLink(u) {
 				seen[u] = true
 				urls = append(urls, u)
+			}
+		}
+	}
+
+	// Also extract links with social/personal keywords in the link text
+	personalLinks := extractPersonalLinks(htmlContent)
+	for _, u := range personalLinks {
+		if !seen[u] {
+			seen[u] = true
+			urls = append(urls, u)
+		}
+	}
+
+	return urls
+}
+
+// extractPersonalLinks finds URLs with social/personal keywords in link text.
+func extractPersonalLinks(htmlContent string) []string {
+	var urls []string
+
+	// Pattern to find anchor tags
+	anchorPattern := regexp.MustCompile(`(?i)<a[^>]+href=["']?([^\s"'>]+)["']?[^>]*>([^<]*(?:<[^/][^>]*>[^<]*)*)</a>`)
+	// Also check markdown-style links: [text](url)
+	markdownPattern := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+
+	// Personal keywords that indicate a personal/social link
+	personalKeywords := []string{"blog", "website", "portfolio", "homepage", "personal site"}
+
+	// HTML links
+	matches := anchorPattern.FindAllStringSubmatch(htmlContent, -1)
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		href := strings.TrimSpace(match[1])
+		text := strings.ToLower(strings.TrimSpace(match[2]))
+
+		for _, kw := range personalKeywords {
+			if strings.Contains(text, kw) {
+				cleanHref := cleanURL(href)
+				if cleanHref != "" && strings.HasPrefix(cleanHref, "http") {
+					urls = append(urls, cleanHref)
+					break
+				}
+			}
+		}
+	}
+
+	// Markdown links
+	mdMatches := markdownPattern.FindAllStringSubmatch(htmlContent, -1)
+	for _, match := range mdMatches {
+		if len(match) < 3 {
+			continue
+		}
+		text := strings.ToLower(strings.TrimSpace(match[1]))
+		href := strings.TrimSpace(match[2])
+
+		for _, kw := range personalKeywords {
+			if strings.Contains(text, kw) {
+				cleanHref := cleanURL(href)
+				if cleanHref != "" && strings.HasPrefix(cleanHref, "http") {
+					urls = append(urls, cleanHref)
+					break
+				}
 			}
 		}
 	}
@@ -162,6 +227,11 @@ func ContactLinks(htmlContent, baseURL string) []string {
 			continue
 		}
 
+		// Skip blog posts (URLs with /posts/, /blog/, /articles/, etc.)
+		if isBlogPostURL(resolved) {
+			continue
+		}
+
 		if !seen[resolved] {
 			seen[resolved] = true
 			links = append(links, resolved)
@@ -228,6 +298,21 @@ func isSocialPlatformURL(u string) bool {
 	// Check for Mastodon pattern (/@username)
 	if strings.Contains(lower, "/@") {
 		return true
+	}
+	return false
+}
+
+func isBlogPostURL(u string) bool {
+	lower := strings.ToLower(u)
+	// Common blog post URL patterns
+	blogPaths := []string{
+		"/posts/", "/post/", "/blog/", "/article/", "/articles/",
+		"/news/", "/story/", "/stories/", "/entry/", "/entries/",
+	}
+	for _, path := range blogPaths {
+		if strings.Contains(lower, path) {
+			return true
+		}
 	}
 	return false
 }

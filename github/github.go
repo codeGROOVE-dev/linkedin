@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codeGROOVE-dev/sociopath/htmlutil"
 	"github.com/codeGROOVE-dev/sociopath/profile"
 )
 
@@ -119,6 +120,19 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	htmlLinks := c.fetchHTMLLinks(ctx, urlStr)
 	p.SocialLinks = append(p.SocialLinks, htmlLinks...)
 
+	// Fetch user's README if available
+	readme := c.fetchREADME(ctx, username)
+	if readme != "" {
+		p.Unstructured = readme
+		// Extract social links from README markdown
+		readmeLinks := htmlutil.SocialLinks(readme)
+		p.SocialLinks = append(p.SocialLinks, readmeLinks...)
+	}
+
+	// Deduplicate and filter out same-platform links (GitHub to GitHub)
+	p.SocialLinks = dedupeLinks(p.SocialLinks)
+	p.SocialLinks = filterSamePlatformLinks(p.SocialLinks)
+
 	return p, nil
 }
 
@@ -203,6 +217,61 @@ func (c *Client) fetchHTMLLinks(ctx context.Context, urlStr string) []string {
 	return extractSocialLinks(string(body))
 }
 
+func (c *Client) fetchREADME(ctx context.Context, username string) string {
+	// Try main branch first, then master as fallback
+	branches := []string{"main", "master"}
+
+	for _, branch := range branches {
+		readmeURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/refs/heads/%s/README.md", username, username, branch)
+
+		// Check cache
+		if c.cache != nil {
+			if data, _, _, found := c.cache.Get(ctx, readmeURL); found {
+				return string(data)
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, readmeURL, http.NoBody)
+		if err != nil {
+			c.logger.Debug("failed to create README request", "error", err, "branch", branch)
+			continue
+		}
+		req.Header.Set("User-Agent", "sociopath/1.0")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			c.logger.Debug("failed to fetch README", "error", err, "branch", branch)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close() //nolint:errcheck // error ignored intentionally
+			c.logger.Debug("README fetch returned non-200", "status", resp.StatusCode, "branch", branch)
+			continue
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close() //nolint:errcheck // error ignored intentionally
+		if err != nil {
+			c.logger.Debug("failed to read README body", "error", err, "branch", branch)
+			continue
+		}
+
+		readme := string(body)
+
+		// Cache response (async, errors intentionally ignored)
+		if c.cache != nil {
+			_ = c.cache.SetAsync(ctx, readmeURL, body, "", nil) //nolint:errcheck // async, error ignored
+		}
+
+		c.logger.Debug("successfully fetched README", "branch", branch, "size", len(readme))
+		return readme
+	}
+
+	c.logger.Debug("no README found for user", "username", username)
+	return ""
+}
+
 // extractSocialLinks extracts social media links from HTML, focusing on rel="me" verified links.
 func extractSocialLinks(html string) []string {
 	var links []string
@@ -225,24 +294,27 @@ func extractSocialLinks(html string) []string {
 	hrefFirstPattern := regexp.MustCompile(`<a[^>]+href=["']([^"']+)["'][^>]+rel=["'][^"']*\bme\b[^"']*["']`)
 	matches = hrefFirstPattern.FindAllStringSubmatch(html, -1)
 	for _, match := range matches {
-		if len(match) > 1 {
-			link := match[1]
-			if !strings.Contains(link, "github.com") && !contains(links, link) {
-				links = append(links, link)
+		if len(match) <= 1 {
+			continue
+		}
+		link := match[1]
+		// Skip GitHub links and duplicates
+		if strings.Contains(link, "github.com") {
+			continue
+		}
+		isDuplicate := false
+		for _, existing := range links {
+			if existing == link {
+				isDuplicate = true
+				break
 			}
+		}
+		if !isDuplicate {
+			links = append(links, link)
 		}
 	}
 
 	return links
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
 
 func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
@@ -347,4 +419,28 @@ func extractUsername(urlStr string) string {
 	}
 
 	return ""
+}
+
+func filterSamePlatformLinks(links []string) []string {
+	var filtered []string
+	for _, link := range links {
+		// Skip GitHub URLs
+		if !Match(link) {
+			filtered = append(filtered, link)
+		}
+	}
+	return filtered
+}
+
+func dedupeLinks(links []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, link := range links {
+		normalized := strings.TrimSuffix(strings.ToLower(link), "/")
+		if !seen[normalized] {
+			seen[normalized] = true
+			result = append(result, link)
+		}
+	}
+	return result
 }

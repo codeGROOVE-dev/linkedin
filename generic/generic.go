@@ -149,16 +149,28 @@ func parseHTML(data []byte, urlStr string) *profile.Profile {
 	// Extract emails
 	emails := htmlutil.EmailAddresses(content)
 	if len(emails) > 0 {
-		p.Fields["email"] = emails[0] // Primary email
+		p.Fields["email"] = cleanEmail(emails[0]) // Primary email
 		if len(emails) > 1 {
 			// Store additional emails
 			for i, email := range emails[1:] {
-				p.Fields[fmt.Sprintf("email_%d", i+2)] = email
+				p.Fields[fmt.Sprintf("email_%d", i+2)] = cleanEmail(email)
 			}
 		}
 	}
 
 	return p
+}
+
+// cleanEmail removes anti-spam text from email addresses.
+func cleanEmail(email string) string {
+	// Remove "NOSPAM" (case-insensitive) from email addresses
+	lower := strings.ToLower(email)
+	if strings.Contains(lower, "nospam") {
+		// Find position of "nospam" and remove it
+		idx := strings.Index(lower, "nospam")
+		return email[:idx] + email[idx+6:]
+	}
+	return email
 }
 
 func dedupeLinks(links []string) []string {

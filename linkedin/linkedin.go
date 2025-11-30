@@ -157,7 +157,7 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 	content := string(body)
 	targetID := extractPublicID(profileURL)
 
-	p := &profile.Profile{
+	prof := &profile.Profile{
 		Platform:      platform,
 		URL:           profileURL,
 		Authenticated: true,
@@ -190,7 +190,7 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 		data := extractProfileData(section)
 		if data.name != "" {
 			if exact {
-				applyProfileData(p, data, code)
+				applyProfileData(prof, data, code)
 				break
 			}
 			if fallbackData == nil {
@@ -199,29 +199,51 @@ func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 		}
 	}
 
-	if p.Name == "" && fallbackData != nil {
-		applyProfileData(p, *fallbackData, content)
+	if prof.Name == "" && fallbackData != nil {
+		applyProfileData(prof, *fallbackData, content)
 	}
 
 	// Fallback to meta tags
-	if p.Name == "" {
-		p.Name = htmlutil.Title(content)
+	if prof.Name == "" {
+		prof.Name = htmlutil.Title(content)
 	}
-	if p.Bio == "" {
-		p.Bio = htmlutil.Description(content)
+	if prof.Bio == "" {
+		prof.Bio = htmlutil.Description(content)
 	}
 
-	if p.Name == "" {
+	if prof.Name == "" {
 		return nil, errors.New("failed to extract profile name")
 	}
 
+	// Verify we got the profile we requested (not logged-in user's feed)
+	if targetID != "" {
+		// Extract the actual publicIdentifier from the profile data
+		actualID := ""
+		for _, code := range blocks {
+			if strings.Contains(code, `"publicIdentifier":`) {
+				re := regexp.MustCompile(`"publicIdentifier"\s*:\s*"([^"]+)"`)
+				if m := re.FindStringSubmatch(code); len(m) > 1 {
+					actualID = m[1]
+					break
+				}
+			}
+		}
+		// If we found an ID and it doesn't match what we requested, this is a redirect
+		if actualID != "" && actualID != targetID {
+			return nil, fmt.Errorf("profile not found (got %q instead of %q)", actualID, targetID)
+		}
+	}
+
 	// Extract social links and websites
-	p.SocialLinks = htmlutil.SocialLinks(content)
+	prof.SocialLinks = htmlutil.SocialLinks(content)
 
 	// Extract contact info URLs
-	extractContactInfo(p, content)
+	extractContactInfo(prof, content)
 
-	return p, nil
+	// Filter out same-platform links (LinkedIn to LinkedIn)
+	prof.SocialLinks = filterSamePlatformLinks(prof.SocialLinks)
+
+	return prof, nil
 }
 
 type profileData struct {
@@ -250,8 +272,20 @@ func extractProfileData(section string) profileData {
 		data.location = unescapeJSON(loc)
 	}
 
-	if company := extractJSONField(section, "companyName"); company != "" {
+	// Try multiple patterns for employer - check experience/positions first
+	// Look for current position by finding entityUrn with "company"
+	companyURNPattern := regexp.MustCompile(`"entityUrn"\s*:\s*"[^"]*company[^"]*"[^}]*"name"\s*:\s*"([^"]+)"`)
+	if m := companyURNPattern.FindStringSubmatch(section); len(m) > 1 {
+		data.employer = unescapeJSON(m[1])
+	} else if company := extractJSONField(section, "companyName"); company != "" {
 		data.employer = unescapeJSON(company)
+	} else if company := extractJSONField(section, "company"); company != "" {
+		data.employer = unescapeJSON(company)
+	} else if title := extractJSONField(section, "title"); title != "" {
+		// Sometimes title contains "Position at Company"
+		if parsed := parseCompanyFromHeadline(unescapeJSON(title)); parsed != "" {
+			data.employer = parsed
+		}
 	}
 
 	return data
@@ -271,8 +305,10 @@ func applyProfileData(p *profile.Profile, data profileData, fullContent string) 
 	}
 
 	if p.Location == "" {
-		if geoLoc := extractGeoLocation(fullContent, ""); geoLoc != "" {
-			p.Location = geoLoc
+		// Look for geo entity with defaultLocalizedName
+		re := regexp.MustCompile(`"defaultLocalizedName":"([^"]+)"`)
+		if m := re.FindStringSubmatch(fullContent); len(m) > 1 {
+			p.Location = unescapeJSON(m[1])
 		}
 	}
 }
@@ -329,34 +365,24 @@ func extractProfileSection(s, id string) string {
 	return s[start:end]
 }
 
-func extractGeoLocation(fullBlock, _ string) string {
-	// Look for geo entity with defaultLocalizedName
-	re := regexp.MustCompile(`"defaultLocalizedName":"([^"]+)"`)
-	if m := re.FindStringSubmatch(fullBlock); len(m) > 1 {
-		return unescapeJSON(m[1])
-	}
-	return ""
-}
-
 func parseCompanyFromHeadline(headline string) string {
+	var company string
 	if idx := strings.Index(headline, " at "); idx != -1 {
-		return cleanCompany(headline[idx+4:])
+		company = headline[idx+4:]
+	} else if idx := strings.Index(headline, " @ "); idx != -1 {
+		company = headline[idx+3:]
+	} else if parts := strings.SplitN(headline, ", ", 2); len(parts) == 2 {
+		company = parts[1]
+	} else {
+		return ""
 	}
-	if idx := strings.Index(headline, " @ "); idx != -1 {
-		return cleanCompany(headline[idx+3:])
-	}
-	if parts := strings.SplitN(headline, ", ", 2); len(parts) == 2 {
-		return cleanCompany(parts[1])
-	}
-	return ""
-}
 
-func cleanCompany(s string) string {
-	s = strings.TrimSpace(s)
-	if idx := strings.IndexAny(s, ",;|"); idx != -1 {
-		s = strings.TrimSpace(s[:idx])
+	// Clean: trim whitespace and remove text after delimiters
+	company = strings.TrimSpace(company)
+	if idx := strings.IndexAny(company, ",;|"); idx != -1 {
+		company = strings.TrimSpace(company[:idx])
 	}
-	return s
+	return company
 }
 
 func unescapeJSON(s string) string {
@@ -397,4 +423,15 @@ func extractContactInfo(p *profile.Profile, content string) {
 			}
 		}
 	}
+}
+
+func filterSamePlatformLinks(links []string) []string {
+	var filtered []string
+	for _, link := range links {
+		// Skip LinkedIn URLs
+		if !Match(link) {
+			filtered = append(filtered, link)
+		}
+	}
+	return filtered
 }

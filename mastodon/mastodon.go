@@ -214,6 +214,9 @@ func (*Client) parseAPIResponse(data []byte) (*profile.Profile, error) {
 		}
 	}
 
+	// Filter out same-server Mastodon links
+	p.SocialLinks = filterSameServerLinks(p.SocialLinks, p.URL)
+
 	return p, nil
 }
 
@@ -270,6 +273,9 @@ func (*Client) parseHTML(data []byte, urlStr, username string) *profile.Profile 
 	p.Name = htmlutil.Title(content)
 	p.SocialLinks = htmlutil.SocialLinks(content)
 
+	// Filter out same-server Mastodon links
+	p.SocialLinks = filterSameServerLinks(p.SocialLinks, urlStr)
+
 	return p
 }
 
@@ -305,4 +311,31 @@ func extractURLs(htmlContent string) []string {
 		}
 	}
 	return urls
+}
+
+func filterSameServerLinks(links []string, profileURL string) []string {
+	// Extract the server/host from the profile URL
+	parsed, err := url.Parse(profileURL)
+	if err != nil {
+		return links
+	}
+	profileHost := strings.ToLower(parsed.Host)
+
+	var filtered []string
+	for _, link := range links {
+		linkParsed, err := url.Parse(link)
+		if err != nil {
+			filtered = append(filtered, link)
+			continue
+		}
+		linkHost := strings.ToLower(linkParsed.Host)
+
+		// If it's a Mastodon link on the same server, filter it out
+		if Match(link) && linkHost == profileHost {
+			continue
+		}
+
+		filtered = append(filtered, link)
+	}
+	return filtered
 }

@@ -20,25 +20,25 @@ var (
 //nolint:govet // fieldalignment: intentional layout for readability
 type Profile struct {
 	// Metadata
-	Platform      string // Platform name: "linkedin", "twitter", "mastodon", etc.
-	URL           string // Original URL fetched
-	Authenticated bool   // Whether login cookies were used
+	Platform      string `json:",omitempty"` // Platform name: "linkedin", "twitter", "mastodon", etc.
+	URL           string `json:",omitempty"` // Original URL fetched
+	Authenticated bool   `json:",omitempty"` // Whether login cookies were used
 
 	// Core profile data
-	Username string // Handle/username (without @ prefix)
-	Name     string // Display name
-	Bio      string // Profile bio/description
-	Location string // Geographic location
-	Website  string // Personal website URL
+	Username string `json:",omitempty"` // Handle/username (without @ prefix)
+	Name     string `json:",omitempty"` // Display name
+	Bio      string `json:",omitempty"` // Profile bio/description
+	Location string `json:",omitempty"` // Geographic location
+	Website  string `json:",omitempty"` // Personal website URL
 
 	// Platform-specific fields
-	Fields map[string]string // Additional platform-specific data (headline, employer, etc.)
+	Fields map[string]string `json:",omitempty"` // Additional platform-specific data (headline, employer, etc.)
 
 	// For further crawling
-	SocialLinks []string // Other social media URLs detected on the profile
+	SocialLinks []string `json:",omitempty"` // Other social media URLs detected on the profile
 
 	// Fallback for unrecognized platforms
-	Unstructured string // Raw markdown content (HTML->MD conversion)
+	Unstructured string `json:",omitempty"` // Raw markdown content (HTML->MD conversion)
 
 	// Guess mode fields (omitted from JSON when empty)
 	IsGuess    bool     `json:",omitempty"` // True if this profile was discovered via guessing

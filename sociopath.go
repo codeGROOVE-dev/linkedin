@@ -380,8 +380,8 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 		// Queue social links for crawling
 		for _, link := range p.SocialLinks {
 			if !visited[normalizeURL(link)] && isValidProfileURL(link) {
-				// For generic pages, only follow if it's a known social platform
-				if !onlyKnownPlatforms || isSocialPlatform(link) {
+				// For generic pages, only follow if it's a known social platform or same-domain contact/about page
+				if !onlyKnownPlatforms || isSocialPlatform(link) || isSameDomainContactPage(link, item.url) {
 					linksToQueue = append(linksToQueue, link)
 				}
 			}
@@ -445,6 +445,41 @@ func isHabrProfile(url string) bool {
 	lower := strings.ToLower(url)
 	return strings.Contains(lower, "habr.com/") && strings.Contains(lower, "/users/") ||
 		strings.Contains(lower, "habrahabr.ru/users/")
+}
+
+// isSameDomainContactPage returns true if the link is a contact/about page on the same domain as baseURL.
+func isSameDomainContactPage(link, baseURL string) bool {
+	linkLower := strings.ToLower(link)
+	baseLower := strings.ToLower(baseURL)
+
+	// Extract domains (simple approach - get hostname)
+	getDomain := func(url string) string {
+		url = strings.TrimPrefix(url, "https://")
+		url = strings.TrimPrefix(url, "http://")
+		url = strings.TrimPrefix(url, "www.")
+		if idx := strings.Index(url, "/"); idx >= 0 {
+			url = url[:idx]
+		}
+		return url
+	}
+
+	linkDomain := getDomain(linkLower)
+	baseDomain := getDomain(baseLower)
+
+	// Only follow if same domain
+	if linkDomain != baseDomain {
+		return false
+	}
+
+	// Check if it looks like a contact/about page
+	contactPaths := []string{"/about", "/contact", "/links", "/connect", "/socials"}
+	for _, path := range contactPaths {
+		if strings.Contains(linkLower, path) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // normalizeURL normalizes a URL for deduplication (removes trailing slash, lowercases host).
