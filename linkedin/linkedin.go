@@ -131,7 +131,16 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 
-	return parseProfile(body, urlStr)
+	prof, parseErr := parseProfile(body, urlStr)
+	if parseErr != nil {
+		// Log additional context for debugging
+		c.logger.DebugContext(ctx, "linkedin parse failed",
+			"url", urlStr,
+			"error", parseErr,
+			"response_size", len(body),
+		)
+	}
+	return prof, parseErr
 }
 
 // EnableDebug enables debug logging.
@@ -153,6 +162,40 @@ func setHeaders(req *http.Request) {
 
 func parseProfile(body []byte, profileURL string) (*profile.Profile, error) {
 	content := string(body)
+
+	// Detect error pages before attempting to parse
+	// Check title first - most reliable indicator
+	titleStart := strings.Index(content, "<title>")
+	titleEnd := strings.Index(content, "</title>")
+	if titleStart >= 0 && titleEnd > titleStart {
+		title := strings.ToLower(content[titleStart+7 : titleEnd])
+		titleErrorPatterns := []string{
+			"page not found",
+			"404",
+			"member not found",
+			"profile not found",
+		}
+		for _, pattern := range titleErrorPatterns {
+			if strings.Contains(title, pattern) {
+				return nil, fmt.Errorf("profile not found (error in title: %q)", pattern)
+			}
+		}
+	}
+
+	// Check for other error indicators in the body
+	lowerContent := strings.ToLower(content)
+	bodyErrorPatterns := []string{
+		"this profile is not available",
+		"account has been restricted",
+		"page doesn't exist",
+		"member you are trying to view",
+	}
+	for _, pattern := range bodyErrorPatterns {
+		if strings.Contains(lowerContent, pattern) {
+			return nil, fmt.Errorf("profile not found (error page detected: %q in response)", pattern)
+		}
+	}
+
 	targetID := extractPublicID(profileURL)
 
 	prof := &profile.Profile{

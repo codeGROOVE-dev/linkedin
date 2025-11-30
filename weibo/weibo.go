@@ -187,8 +187,27 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 
 	// Try to parse as JSON first
 	var apiResp weiboAPIResponse
-	if err := json.Unmarshal(content, &apiResp); err == nil && apiResp.Ok == 1 {
-		return parseAPIResponse(&apiResp, normalizedURL, username), nil
+	if err := json.Unmarshal(content, &apiResp); err == nil {
+		// ok=1 means success
+		if apiResp.Ok == 1 {
+			return parseAPIResponse(&apiResp, normalizedURL, username), nil
+		}
+		// ok=-100 means not logged in / profile requires auth / doesn't exist
+		if apiResp.Ok == -100 {
+			return nil, errors.New("profile not found or requires authentication")
+		}
+		// Other non-1 values also indicate failure
+		if apiResp.Ok != 0 {
+			return nil, fmt.Errorf("weibo API returned ok=%d", apiResp.Ok)
+		}
+	}
+
+	// Check for explicit error response
+	var errorResp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(content, &errorResp); err == nil && errorResp.Error != "" {
+		return nil, fmt.Errorf("profile not found: %s", errorResp.Error)
 	}
 
 	// Fallback to HTML parsing (in case API fails or returns HTML)

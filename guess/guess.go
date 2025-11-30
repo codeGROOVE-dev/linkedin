@@ -380,7 +380,17 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, targetUserna
 		score = 1.0
 	}
 
-	return score, dedupe(matches)
+	// Deduplicate match reasons
+	seen := make(map[string]bool)
+	var uniqueMatches []string
+	for _, s := range matches {
+		if !seen[s] {
+			seen[s] = true
+			uniqueMatches = append(uniqueMatches, s)
+		}
+	}
+
+	return score, uniqueMatches
 }
 
 func hasLinkTo(from, to *profile.Profile) bool {
@@ -550,16 +560,4 @@ func extractSignificantWords(s string) []string {
 		}
 	}
 	return words
-}
-
-func dedupe(strs []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, s := range strs {
-		if !seen[s] {
-			seen[s] = true
-			result = append(result, s)
-		}
-	}
-	return result
 }

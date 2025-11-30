@@ -120,7 +120,8 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	content := string(data)
 
-	p := &profile.Profile{
+	p := &profile.Profile{ //nolint:varnamelen // p for profile is idiomatic
+
 		Platform:      platform,
 		URL:           urlStr,
 		Authenticated: false,
@@ -145,21 +146,42 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// Extract bio from meta description
 	p.Bio = htmlutil.Description(content)
 
-	// Extract location
-	locPattern := regexp.MustCompile(`(?i)location[^>]*>[^<]*</[^>]+>\s*<[^>]+>([A-Za-z][^<]{2,50})</`)
+	// Extract location - look for <title>Location</title> followed by <span>location</span>
+	locPattern := regexp.MustCompile(`(?s)<title[^>]*>Location</title>.*?</svg>\s*<span>\s*([^<]+?)\s*</span>`)
 	if m := locPattern.FindStringSubmatch(content); len(m) > 1 {
 		loc := strings.TrimSpace(html.UnescapeString(m[1]))
-		if !strings.Contains(strings.ToLower(loc), "joined") {
+		if loc != "" && !strings.Contains(strings.ToLower(loc), "joined") {
 			p.Location = loc
-			p.Fields["location"] = loc
 		}
 	}
 
-	// Extract website
-	websitePattern := regexp.MustCompile(`(?i)<a[^>]+href=["'](https?://[^"']+)["'][^>]*>\s*Website\s*</a>`)
+	// Extract joined date
+	joinedPattern := regexp.MustCompile(`<time\s+datetime="([^"]+)"[^>]*>([^<]+)</time>`)
+	if m := joinedPattern.FindStringSubmatch(content); len(m) > 2 {
+		p.Fields["joined"] = strings.TrimSpace(m[2])
+		p.Fields["joined_datetime"] = m[1]
+	}
+
+	// Extract work/employment - look for <p>Work</p> followed by value
+	workPattern := regexp.MustCompile(`<strong[^>]*>\s*<p>Work</p>\s*</strong>\s*<p[^>]*>\s*<p>([^<]+)</p>`)
+	if m := workPattern.FindStringSubmatch(content); len(m) > 1 {
+		work := strings.TrimSpace(html.UnescapeString(m[1]))
+		if work != "" {
+			p.Fields["work"] = work
+		}
+	}
+
+	// Extract website - look for profile-header__meta__item link
+	websitePattern := regexp.MustCompile(`<a\s+href=["'](https?://[^"']+)["'][^>]*class="[^"]*profile-header__meta__item[^"]*"`)
 	if m := websitePattern.FindStringSubmatch(content); len(m) > 1 {
-		p.Website = m[1]
-		p.Fields["website"] = m[1]
+		website := m[1]
+		// Filter out social media URLs
+		if !strings.Contains(website, "twitter.com") &&
+			!strings.Contains(website, "x.com") &&
+			!strings.Contains(website, "github.com") &&
+			!strings.Contains(website, "linkedin.com") {
+			p.Website = website
+		}
 	}
 
 	// Extract Twitter

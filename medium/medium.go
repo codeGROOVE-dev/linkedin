@@ -3,8 +3,8 @@ package medium
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -79,48 +79,38 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	normalizedURL := fmt.Sprintf("https://medium.com/@%s", username)
 	c.logger.InfoContext(ctx, "fetching medium profile", "url", normalizedURL, "username", username)
 
-	// Check cache
-	var content string
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, normalizedURL); found {
-			content = string(data)
-		}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
+	if err != nil {
+		return nil, fmt.Errorf("fetch failed: %w", err)
 	}
 
-	if content == "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedURL, http.NoBody)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
-		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20)) // 5MB limit
-		if err != nil {
-			return nil, err
-		}
-		content = string(body)
-
-		// Cache response
-		if c.cache != nil {
-			_ = c.cache.SetAsync(ctx, normalizedURL, body, "", nil) //nolint:errcheck // error ignored intentionally
-		}
-	}
-
-	return parseProfile(content, normalizedURL, username)
+	return parseProfile(string(body), normalizedURL, username)
 }
 
-func parseProfile(html, url, username string) (*profile.Profile, error) { //nolint:unparam // error return part of interface pattern
+func parseProfile(html, url, username string) (*profile.Profile, error) {
+	// Detect error pages before attempting to parse
+	lowerHTML := strings.ToLower(html)
+	errorPatterns := []string{
+		"page not found",
+		"404",
+		"user not found",
+		"this page is not available",
+		"account suspended",
+		"page doesn't exist",
+	}
+	for _, pattern := range errorPatterns {
+		if strings.Contains(lowerHTML, pattern) {
+			return nil, errors.New("profile not found (error page detected)")
+		}
+	}
+
 	prof := &profile.Profile{
 		Platform: platform,
 		URL:      url,
@@ -137,6 +127,11 @@ func parseProfile(html, url, username string) (*profile.Profile, error) { //noli
 		} else if idx := strings.Index(prof.Name, " – Medium"); idx != -1 {
 			prof.Name = strings.TrimSpace(prof.Name[:idx])
 		}
+	}
+
+	// Detect if title is just "Medium" (error page indicator)
+	if prof.Name == "Medium" || prof.Name == "" {
+		return nil, errors.New("profile not found (invalid or missing name)")
 	}
 
 	// Extract bio/description
