@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -82,13 +81,6 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 
 	apiURL := fmt.Sprintf("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=%s", handle)
 
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, apiURL); found {
-			return parseAPIResponse(data, urlStr, handle)
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -96,24 +88,9 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sociopath/1.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, apiURL, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return parseAPIResponse(body, urlStr, handle)

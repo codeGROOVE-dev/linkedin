@@ -70,6 +70,8 @@ func main() {
 			logger.Warn("failed to initialize cache, continuing without cache", "error", err)
 		} else {
 			defer func() {
+				stats := httpCache.Stats()
+				logger.Info("cache stats", "hits", stats.Hits, "misses", stats.Misses, "hit_rate", fmt.Sprintf("%.1f%%", stats.HitRate()))
 				if err := httpCache.Close(); err != nil {
 					logger.Warn("failed to close cache", "error", err)
 				}

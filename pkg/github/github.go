@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -149,13 +148,6 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
 	apiURL := "https://api.github.com/users/" + username
 
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, apiURL); found {
-			return parseJSON(data, urlStr, username)
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -163,39 +155,15 @@ func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profil
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "sociopath/1.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, apiURL, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return parseJSON(body, urlStr, username)
 }
 
 func (c *Client) fetchHTML(ctx context.Context, urlStr string) (content string, links []string) {
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
-			content = string(data)
-			links = extractSocialLinks(content)
-			return content, links
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		c.logger.Debug("failed to create HTML request", "error", err)
@@ -203,27 +171,10 @@ func (c *Client) fetchHTML(ctx context.Context, urlStr string) (content string, 
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		c.logger.Debug("failed to fetch HTML", "error", err)
 		return "", nil
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Debug("HTML fetch returned non-200", "status", resp.StatusCode)
-		return "", nil
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		c.logger.Debug("failed to read HTML body", "error", err)
-		return "", nil
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	content = string(body)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/codeGROOVE-dev/sociopath/pkg/auth"
+	"github.com/codeGROOVE-dev/sociopath/pkg/cache"
 	"github.com/codeGROOVE-dev/sociopath/pkg/htmlutil"
 	"github.com/codeGROOVE-dev/sociopath/pkg/profile"
 )
@@ -97,6 +97,7 @@ func AuthRequired() bool { return true }
 // Client handles Twitter/X requests with authenticated cookies.
 type Client struct {
 	httpClient *http.Client
+	cache      cache.HTTPCache
 	logger     *slog.Logger
 	debug      bool
 }
@@ -106,6 +107,7 @@ type Option func(*config)
 
 type config struct {
 	cookies        map[string]string
+	cache          cache.HTTPCache
 	logger         *slog.Logger
 	browserCookies bool
 }
@@ -118,6 +120,11 @@ func WithCookies(cookies map[string]string) Option {
 // WithBrowserCookies enables reading cookies from browser stores.
 func WithBrowserCookies() Option {
 	return func(c *config) { c.browserCookies = true }
+}
+
+// WithHTTPCache sets the HTTP cache.
+func WithHTTPCache(httpCache cache.HTTPCache) Option {
+	return func(c *config) { c.cache = httpCache }
 }
 
 // WithLogger sets a custom logger.
@@ -161,6 +168,7 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 
 	return &Client{
 		httpClient: &http.Client{Jar: jar, Timeout: 3 * time.Second},
+		cache:      cfg.cache,
 		logger:     cfg.logger,
 	}, nil
 }
@@ -219,20 +227,9 @@ func (c *Client) fetchViaGraphQL(ctx context.Context, username, profileURL strin
 
 	setGraphQLHeaders(req, c.httpClient, profileURL)
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("reading response failed: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Debug("graphql api error", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
 
 	c.logger.Debug("graphql response received", "size", len(body))
@@ -249,19 +246,9 @@ func (c *Client) fetchViaHTML(ctx context.Context, username, profileURL string) 
 
 	setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response failed: %w", err)
 	}
 
 	return c.parseProfile(body, profileURL, username)

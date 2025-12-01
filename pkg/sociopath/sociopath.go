@@ -179,6 +179,9 @@ func fetchTwitter(ctx context.Context, url string, cfg *config) (*profile.Profil
 	if cfg.browserCookies {
 		opts = append(opts, twitter.WithBrowserCookies())
 	}
+	if cfg.cache != nil {
+		opts = append(opts, twitter.WithHTTPCache(cfg.cache))
+	}
 	if cfg.logger != nil {
 		opts = append(opts, twitter.WithLogger(cfg.logger))
 	}
@@ -288,6 +291,12 @@ func fetchTikTok(ctx context.Context, url string, cfg *config) (*profile.Profile
 	if len(cfg.cookies) > 0 {
 		opts = append(opts, tiktok.WithCookies(cfg.cookies))
 	}
+	if cfg.cache != nil {
+		opts = append(opts, tiktok.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, tiktok.WithLogger(cfg.logger))
+	}
 
 	client, err := tiktok.New(ctx, opts...)
 	if err != nil {
@@ -300,6 +309,12 @@ func fetchVKontakte(ctx context.Context, url string, cfg *config) (*profile.Prof
 	var opts []vkontakte.Option
 	if len(cfg.cookies) > 0 {
 		opts = append(opts, vkontakte.WithCookies(cfg.cookies))
+	}
+	if cfg.cache != nil {
+		opts = append(opts, vkontakte.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, vkontakte.WithLogger(cfg.logger))
 	}
 
 	client, err := vkontakte.New(ctx, opts...)

@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -85,13 +84,6 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 
 	c.logger.InfoContext(ctx, "fetching generic website", "url", urlStr)
 
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
-			return parseHTML(data, urlStr), nil
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -100,24 +92,9 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return parseHTML(body, urlStr), nil

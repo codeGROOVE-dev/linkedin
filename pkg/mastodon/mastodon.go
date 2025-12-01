@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -135,13 +134,6 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 func (c *Client) fetchViaAPI(ctx context.Context, host, username string) (*profile.Profile, error) {
 	apiURL := fmt.Sprintf("https://%s/api/v1/accounts/lookup?acct=%s", host, username)
 
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, apiURL); found {
-			return c.parseAPIResponse(data)
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -149,24 +141,9 @@ func (c *Client) fetchViaAPI(ctx context.Context, host, username string) (*profi
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "sociopath/1.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, apiURL, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return c.parseAPIResponse(body)
@@ -222,37 +199,15 @@ func (*Client) parseAPIResponse(data []byte) (*profile.Profile, error) {
 }
 
 func (c *Client) fetchViaHTML(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
-			return c.parseHTML(data, urlStr, username), nil
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "sociopath/1.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return c.parseHTML(body, urlStr, username), nil

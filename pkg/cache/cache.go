@@ -7,14 +7,36 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
+
+const errorTTL = 5 * 24 * time.Hour // Cache HTTP errors for 5 days
+
+// Stats holds cache hit/miss statistics.
+type Stats struct {
+	Hits   int64
+	Misses int64
+}
+
+// HitRate returns the cache hit rate as a percentage (0-100).
+func (s Stats) HitRate() float64 {
+	total := s.Hits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.Hits) / float64(total) * 100
+}
 
 // HTTPCache defines the interface for caching HTTP responses.
 type HTTPCache interface {
 	Get(ctx context.Context, url string) (data []byte, etag string, headers map[string]string, found bool)
 	SetAsync(ctx context.Context, url string, data []byte, etag string, headers map[string]string) error
 	SetAsyncWithTTL(ctx context.Context, url string, data []byte, etag string, headers map[string]string, ttl time.Duration) error
+	RecordHit()
+	RecordMiss()
+	Stats() Stats
 }
 
 // ResponseValidator is a function that validates a response body.
@@ -44,13 +66,29 @@ func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Cl
 	}
 
 	// Check cache
-	if cache != nil {
+	if cache == nil {
+		if logger != nil {
+			logger.Info("cache disabled", "url", req.URL.String())
+		}
+	} else {
 		if data, _, _, found := cache.Get(ctx, cacheKey); found {
+			cache.RecordHit()
+			// Check if this is a cached error (format: "ERROR:status_code")
+			if s := string(data); strings.HasPrefix(s, "ERROR:") {
+				code, _ := strconv.Atoi(strings.TrimPrefix(s, "ERROR:"))
+				if logger != nil {
+					logger.Debug("cache hit (error)", "key", cacheKey, "status", code)
+				}
+				return nil, &HTTPError{StatusCode: code, URL: req.URL.String()}
+			}
 			if logger != nil {
 				logger.Debug("cache hit", "key", cacheKey)
-				logger.Debug("response body", "url", req.URL.String(), "body", string(data))
 			}
 			return data, nil
+		}
+		cache.RecordMiss()
+		if logger != nil {
+			logger.Info("cache miss", "url", req.URL.String(), "key", cacheKey)
 		}
 	}
 
@@ -61,8 +99,15 @@ func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Cl
 	}
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
 
-	// Check status code
+	// Check status code - cache errors for 5 days to avoid hammering servers
 	if resp.StatusCode != http.StatusOK {
+		if cache != nil {
+			errData := []byte(fmt.Sprintf("ERROR:%d", resp.StatusCode))
+			_ = cache.SetAsyncWithTTL(ctx, cacheKey, errData, "", nil, errorTTL) //nolint:errcheck
+			if logger != nil {
+				logger.Info("cache store", "url", req.URL.String(), "key", cacheKey, "status", resp.StatusCode, "bytes", len(errData), "ttl", errorTTL)
+			}
+		}
 		return nil, &HTTPError{StatusCode: resp.StatusCode, URL: req.URL.String()}
 	}
 
@@ -76,13 +121,12 @@ func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Cl
 	shouldCache := validator == nil || validator(body)
 	if cache != nil && shouldCache {
 		_ = cache.SetAsync(ctx, cacheKey, body, "", nil) //nolint:errcheck // async, error ignored
+		if logger != nil {
+			logger.Info("cache store", "url", req.URL.String(), "key", cacheKey, "status", 200, "bytes", len(body), "ttl", "default")
+		}
 	}
 	if cache != nil && !shouldCache && logger != nil {
 		logger.Debug("skipping cache due to validation failure", "key", cacheKey)
-	}
-
-	if logger != nil {
-		logger.Debug("response body", "url", req.URL.String(), "body", string(body))
 	}
 
 	return body, nil

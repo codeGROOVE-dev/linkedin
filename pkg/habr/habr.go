@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -86,44 +85,18 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	normalizedURL := fmt.Sprintf("https://habr.com/en/users/%s", username)
 	c.logger.InfoContext(ctx, "fetching habr profile", "url", normalizedURL, "username", username)
 
-	// Check cache
-	var content string
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, normalizedURL); found {
-			content = string(data)
-		}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
+
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
+	if err != nil {
+		return nil, err
 	}
 
-	if content == "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizedURL, http.NoBody)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20)) // 5MB limit
-		if err != nil {
-			return nil, err
-		}
-		content = string(body)
-
-		// Cache response
-		if c.cache != nil {
-			_ = c.cache.SetAsync(ctx, normalizedURL, body, "", nil) //nolint:errcheck // error ignored intentionally
-		}
-	}
-
-	return parseProfile(content, normalizedURL, username)
+	return parseProfile(string(body), normalizedURL, username)
 }
 
 func parseProfile(html, url, username string) (*profile.Profile, error) {

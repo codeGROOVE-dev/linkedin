@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -100,37 +99,15 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 
 	c.logger.InfoContext(ctx, "fetching codeberg profile", "url", urlStr, "username", username)
 
-	// Check cache
-	if c.cache != nil {
-		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
-			return parseHTML(data, urlStr, username), nil
-		}
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0) Gecko/20100101 Firefox/146.0")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
-	// Cache response (async, errors intentionally ignored)
-	if c.cache != nil {
-		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
 	}
 
 	return parseHTML(body, urlStr, username), nil

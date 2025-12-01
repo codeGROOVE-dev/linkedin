@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/codeGROOVE-dev/bdcache"
@@ -15,8 +16,10 @@ import (
 
 // BDCache wraps bdcache to implement the HTTPCache interface.
 type BDCache struct {
-	cache *bdcache.Cache[string, *CachedResponse]
-	ttl   time.Duration
+	cache  *bdcache.Cache[string, *CachedResponse]
+	ttl    time.Duration
+	hits   atomic.Int64
+	misses atomic.Int64
 }
 
 // CachedResponse holds HTTP response data.
@@ -108,6 +111,24 @@ func (c *BDCache) SetAsyncWithTTL(ctx context.Context, url string, data []byte, 
 // Close flushes and closes the cache.
 func (c *BDCache) Close() error {
 	return c.cache.Close()
+}
+
+// RecordHit increments the cache hit counter.
+func (c *BDCache) RecordHit() {
+	c.hits.Add(1)
+}
+
+// RecordMiss increments the cache miss counter.
+func (c *BDCache) RecordMiss() {
+	c.misses.Add(1)
+}
+
+// Stats returns the current cache statistics.
+func (c *BDCache) Stats() Stats {
+	return Stats{
+		Hits:   c.hits.Load(),
+		Misses: c.misses.Load(),
+	}
 }
 
 // urlToKey converts a URL to a cache key using SHA256 hash.

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -213,22 +212,9 @@ func (c *Client) fetchExperienceFromAPI(ctx context.Context, _ string, memberURN
 	setVoyagerHeaders(req, c.httpClient, c.logger)
 	req.Header.Set("Accept", "application/vnd.linkedin.normalized+json+2.1")
 
-	// Don't use cache for API calls - they need fresh CSRF tokens
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		c.logger.DebugContext(ctx, "voyager api request failed", "error", err)
-		return experienceData{}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.DebugContext(ctx, "voyager api request failed", "status", resp.StatusCode)
-		return experienceData{}
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.DebugContext(ctx, "voyager api body read failed", "error", err)
 		return experienceData{}
 	}
 
@@ -269,21 +255,9 @@ func (c *Client) fetchLocationFromAPI(ctx context.Context, memberURN string) str
 	setVoyagerHeaders(req, c.httpClient, c.logger)
 	req.Header.Set("Accept", "application/vnd.linkedin.normalized+json+2.1")
 
-	resp, err := c.httpClient.Do(req)
+	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		c.logger.DebugContext(ctx, "location api request failed", "error", err)
-		return ""
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.DebugContext(ctx, "location api request failed", "status", resp.StatusCode)
-		return ""
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.DebugContext(ctx, "location api body read failed", "error", err)
 		return ""
 	}
 
@@ -355,12 +329,12 @@ func (c *Client) ensureSessionCookies(ctx context.Context) error {
 	}
 	setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	// Use cache - the cookies will be set on first request, and subsequent
+	// requests will hit cache (we already have the cookies in the jar)
+	_, err = cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body) // drain body
 
 	// Check if we got JSESSIONID
 	for _, cookie := range c.httpClient.Jar.Cookies(u) {
