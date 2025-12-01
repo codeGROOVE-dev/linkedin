@@ -390,9 +390,9 @@ func TestScoreMatchIntegration(t *testing.T) {
 				username:  "rustdev",
 				matchType: "username",
 			},
-			wantMin:     0.6,
-			wantMax:     0.8,
-			wantMatches: []string{"username:exact", "name:github", "bio:github"},
+			wantMin:     0.85,
+			wantMax:     1.0,
+			wantMatches: []string{"username:exact", "name:github", "bio:github", "interest:github"},
 		},
 		{
 			name: "low confidence - short username no other signals",
@@ -491,6 +491,97 @@ func TestExtractSignificantWords(t *testing.T) {
 				if gotMap[notWant] {
 					t.Errorf("extractSignificantWords(%q) = %v, should not contain %q", tt.input, got, notWant)
 				}
+			}
+		})
+	}
+}
+
+// TestScoreInterestMatch tests interest-based profile matching.
+func TestScoreInterestMatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		profileA *profile.Profile
+		profileB *profile.Profile
+		want     bool
+	}{
+		{
+			name: "vim subreddit matches vim bio",
+			profileA: &profile.Profile{
+				Platform: "reddit",
+				Username: "tpope",
+				Fields:   map[string]string{"subreddits": "vim, KeybaseProofs"},
+			},
+			profileB: &profile.Profile{
+				Platform: "github",
+				Username: "tpope",
+				Bio:      "Vim plugin artist",
+			},
+			want: true,
+		},
+		{
+			name: "vim mentioned in both bios",
+			profileA: &profile.Profile{
+				Platform: "medium",
+				Username: "tpope",
+				Bio:      "I wrote a lot of Vim pumpkins but nowadays I mostly just try spookily hard to be funny",
+			},
+			profileB: &profile.Profile{
+				Platform: "github",
+				Username: "tpope",
+				Bio:      "Vim plugin artist",
+			},
+			want: true,
+		},
+		{
+			name: "kubernetes org matches kubernetes subreddit",
+			profileA: &profile.Profile{
+				Platform: "github",
+				Username: "k8sdev",
+				Fields:   map[string]string{"organizations": "kubernetes, cncf"},
+			},
+			profileB: &profile.Profile{
+				Platform: "reddit",
+				Username: "k8sdev",
+				Fields:   map[string]string{"subreddits": "kubernetes, golang"},
+			},
+			want: true,
+		},
+		{
+			name: "no shared interests",
+			profileA: &profile.Profile{
+				Platform: "reddit",
+				Username: "foodie",
+				Fields:   map[string]string{"subreddits": "cooking, recipes"},
+			},
+			profileB: &profile.Profile{
+				Platform: "github",
+				Username: "foodie",
+				Bio:      "I love to cook",
+			},
+			want: false,
+		},
+		{
+			name: "unstructured content with shared interest",
+			profileA: &profile.Profile{
+				Platform: "reddit",
+				Username: "rustfan",
+				Unstructured: "I've been learning rust for a few months now and really enjoying it. " +
+					"The borrow checker is amazing once you understand it.",
+			},
+			profileB: &profile.Profile{
+				Platform: "github",
+				Username: "rustfan",
+				Bio:      "Rust developer",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := scoreInterestMatch(tt.profileA, tt.profileB)
+			if got != tt.want {
+				t.Errorf("scoreInterestMatch() = %v, want %v", got, tt.want)
 			}
 		})
 	}

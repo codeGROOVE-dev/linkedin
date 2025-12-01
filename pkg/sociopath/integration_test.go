@@ -558,9 +558,9 @@ func TestIntegrationLiveFetch(t *testing.T) {
 			authOnly: true,
 			setup: func(ctx context.Context, t *testing.T) interface{} {
 				t.Helper()
-				client, err := twitter.New(ctx, twitter.WithBrowserCookies())
+				client, err := twitter.New(ctx)
 				if err != nil {
-					t.Skipf("twitter.New(twitter.WithBrowserCookies()) failed: %v", err)
+					t.Skipf("twitter.New() failed (set TWITTER_AUTH_TOKEN env var): %v", err)
 				}
 				return client
 			},
@@ -581,9 +581,9 @@ func TestIntegrationLiveFetch(t *testing.T) {
 			authOnly: true,
 			setup: func(ctx context.Context, t *testing.T) interface{} {
 				t.Helper()
-				client, err := linkedin.New(ctx, linkedin.WithBrowserCookies())
+				client, err := linkedin.New(ctx)
 				if err != nil {
-					t.Skipf("linkedin.New(linkedin.WithBrowserCookies()) failed: %v", err)
+					t.Skipf("linkedin.New() failed (set LINKEDIN_LI_AT env var): %v", err)
 				}
 				return client
 			},
@@ -610,9 +610,9 @@ func TestIntegrationLiveFetch(t *testing.T) {
 			authOnly: true,
 			setup: func(ctx context.Context, t *testing.T) interface{} {
 				t.Helper()
-				client, err := linkedin.New(ctx, linkedin.WithBrowserCookies())
+				client, err := linkedin.New(ctx)
 				if err != nil {
-					t.Skipf("linkedin.New(linkedin.WithBrowserCookies()) failed: %v", err)
+					t.Skipf("linkedin.New() failed (set LINKEDIN_LI_AT env var): %v", err)
 				}
 				return client
 			},
@@ -640,9 +640,9 @@ func TestIntegrationLiveFetch(t *testing.T) {
 			authOnly: true,
 			setup: func(ctx context.Context, t *testing.T) interface{} {
 				t.Helper()
-				client, err := linkedin.New(ctx, linkedin.WithBrowserCookies())
+				client, err := linkedin.New(ctx)
 				if err != nil {
-					t.Skipf("linkedin.New(linkedin.WithBrowserCookies()) failed: %v", err)
+					t.Skipf("linkedin.New() failed (set LINKEDIN_LI_AT env var): %v", err)
 				}
 				return client
 			},

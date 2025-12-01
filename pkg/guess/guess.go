@@ -39,6 +39,8 @@ var mastodonServers = []string{
 }
 
 // Platform URL patterns for username-based guessing.
+// Note: weibo and zhihu are excluded because they require authentication
+// and always redirect to login pages for unauthenticated users.
 var platformPatterns = []struct {
 	name    string
 	pattern string // %s will be replaced with username
@@ -50,14 +52,216 @@ var platformPatterns = []struct {
 	{"instagram", "https://instagram.com/%s"},
 	{"tiktok", "https://tiktok.com/@%s"},
 	{"linkedin", "https://linkedin.com/in/%s"},
-	{"weibo", "https://weibo.com/%s"},
-	{"zhihu", "https://zhihu.com/people/%s"},
 	{"bilibili", "https://space.bilibili.com/%s"},
 	{"reddit", "https://reddit.com/user/%s"},
 	{"youtube", "https://youtube.com/@%s"},
 	{"medium", "https://medium.com/@%s"},
 	{"habr", "https://habr.com/users/%s"},
 	{"vkontakte", "https://vk.com/%s"},
+}
+
+// isValidUsernameForPlatform checks if a username meets the platform's requirements.
+// Each platform has different rules for valid usernames.
+func isValidUsernameForPlatform(username, platform string) bool {
+	switch platform {
+	case "linkedin":
+		// LinkedIn: 3-100 chars, alphanumeric and hyphens only, no consecutive hyphens,
+		// cannot start/end with hyphen
+		if len(username) < 3 || len(username) > 100 {
+			return false
+		}
+		if strings.HasPrefix(username, "-") || strings.HasSuffix(username, "-") {
+			return false
+		}
+		if strings.Contains(username, "--") {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				return false
+			}
+		}
+		return true
+
+	case "twitter":
+		// Twitter/X: 4-15 chars, alphanumeric and underscores only
+		if len(username) < 4 || len(username) > 15 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "github":
+		// GitHub: 1-39 chars, alphanumeric and hyphens, cannot start with hyphen,
+		// no consecutive hyphens
+		if len(username) < 1 || len(username) > 39 {
+			return false
+		}
+		if strings.HasPrefix(username, "-") {
+			return false
+		}
+		if strings.Contains(username, "--") {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				return false
+			}
+		}
+		return true
+
+	case "instagram":
+		// Instagram: 1-30 chars, alphanumeric, underscores, and periods
+		// Cannot have consecutive periods, cannot start/end with period
+		if len(username) < 1 || len(username) > 30 {
+			return false
+		}
+		if strings.HasPrefix(username, ".") || strings.HasSuffix(username, ".") {
+			return false
+		}
+		if strings.Contains(username, "..") {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.') {
+				return false
+			}
+		}
+		return true
+
+	case "tiktok":
+		// TikTok: 2-24 chars, alphanumeric, underscores, and periods
+		if len(username) < 2 || len(username) > 24 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.') {
+				return false
+			}
+		}
+		return true
+
+	case "reddit":
+		// Reddit: 3-20 chars, alphanumeric and underscores, hyphens allowed
+		if len(username) < 3 || len(username) > 20 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+				return false
+			}
+		}
+		return true
+
+	case "youtube":
+		// YouTube handles: 3-30 chars, alphanumeric, underscores, hyphens, periods
+		if len(username) < 3 || len(username) > 30 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+				return false
+			}
+		}
+		return true
+
+	case "medium":
+		// Medium: alphanumeric and underscores, typically 1-30 chars
+		if len(username) < 1 || len(username) > 30 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "bluesky":
+		// Bluesky handles: 3-20 chars before .bsky.social, alphanumeric and hyphens
+		// Cannot start/end with hyphen
+		if len(username) < 3 || len(username) > 20 {
+			return false
+		}
+		if strings.HasPrefix(username, "-") || strings.HasSuffix(username, "-") {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
+				return false
+			}
+		}
+		return true
+
+	case "mastodon":
+		// Mastodon: 1-30 chars typically, alphanumeric and underscores
+		if len(username) < 1 || len(username) > 30 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "devto":
+		// Dev.to: alphanumeric and underscores
+		if len(username) < 1 || len(username) > 30 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "habr":
+		// Habr: alphanumeric and underscores
+		if len(username) < 1 || len(username) > 30 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "vkontakte":
+		// VK: alphanumeric and underscores, 5-32 chars
+		if len(username) < 5 || len(username) > 32 {
+			return false
+		}
+		for _, c := range username {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+		return true
+
+	case "bilibili":
+		// Bilibili uses numeric user IDs, not usernames
+		for _, c := range username {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+		return len(username) > 0
+
+	case "weibo", "zhihu":
+		// These platforms use various ID formats, be permissive
+		return len(username) >= 1 && len(username) <= 50
+
+	default:
+		// Unknown platform, be permissive
+		return len(username) >= 1
+	}
 }
 
 // Related discovers related profiles based on known profiles.
@@ -77,8 +281,8 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 	// Build set of already known URLs to avoid duplicates
 	knownURLs := make(map[string]bool)
-	knownPlatforms := make(map[string]bool)      // Platforms we have profiles for (guessed or vouched)
-	vouchedPlatforms := make(map[string]bool)    // Platforms from vouched sources only
+	knownPlatforms := make(map[string]bool)   // Platforms we have profiles for (guessed or vouched)
+	vouchedPlatforms := make(map[string]bool) // Platforms from vouched sources only
 	for _, p := range known {
 		knownURLs[normalizeURL(p.URL)] = true
 		knownPlatforms[p.Platform] = true
@@ -122,14 +326,14 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 			p, err := cfg.Fetcher(fetchCtx, candidate.url)
 			if err != nil {
-				cfg.Logger.Debug("guess candidate failed", "url", candidate.url, "error", err)
+				cfg.Logger.Info("guess candidate failed", "url", candidate.url, "error", err)
 				return
 			}
 
 			// Score the match against known profiles
 			confidence, matches := scoreMatch(p, known, candidate)
 			if confidence < 0.3 {
-				cfg.Logger.Debug("guess candidate low confidence, skipping", "url", candidate.url, "confidence", confidence)
+				cfg.Logger.Info("guess candidate low confidence, skipping", "url", candidate.url, "confidence", confidence)
 				return
 			}
 
@@ -213,7 +417,7 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 					p, err := cfg.Fetcher(fetchCtx, url)
 					if err != nil {
-						cfg.Logger.Debug("social link fetch failed", "url", url, "error", err)
+						cfg.Logger.Info("social link fetch failed", "url", url, "error", err)
 						return
 					}
 
@@ -228,7 +432,7 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 					// Lower threshold for linked profiles since they were directly referenced
 					if confidence < 0.25 {
-						cfg.Logger.Debug("social link low confidence, skipping",
+						cfg.Logger.Info("social link low confidence, skipping",
 							"url", url, "confidence", confidence)
 						return
 					}
@@ -251,7 +455,11 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 		// Also extract usernames for username-based guessing
 		secondRoundUsernames := extractUsernames(guessed)
-		secondRoundNames := extractNames(guessed)
+		// For name-based guessing (especially LinkedIn), only use names from high-confidence profiles
+		// to avoid using incorrect names from low-confidence guesses (e.g., "Trevor Pope" from TikTok
+		// when the original GitHub profile has "Tim Pope")
+		highConfidenceGuessed := filterHighConfidenceForNames(guessed)
+		secondRoundNames := extractNames(highConfidenceGuessed)
 
 		// Only generate candidates for NEW usernames/names not already tried
 		newUsernames := make([]string, 0)
@@ -306,7 +514,7 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 					p, err := cfg.Fetcher(fetchCtx, candidate.url)
 					if err != nil {
-						cfg.Logger.Debug("second round candidate failed", "url", candidate.url, "error", err)
+						cfg.Logger.Info("second round candidate failed", "url", candidate.url, "error", err)
 						return
 					}
 
@@ -314,7 +522,7 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 					allKnown := append(known, guessed...)
 					confidence, matches := scoreMatch(p, allKnown, candidate)
 					if confidence < 0.3 {
-						cfg.Logger.Debug("second round candidate low confidence, skipping",
+						cfg.Logger.Info("second round candidate low confidence, skipping",
 							"url", candidate.url, "confidence", confidence)
 						return
 					}
@@ -484,6 +692,20 @@ func extractUsernames(profiles []*profile.Profile) []string {
 	return usernames
 }
 
+// filterHighConfidenceForNames returns only profiles with confidence >= 0.6 for name extraction.
+// This prevents low-confidence guesses (like finding "Trevor Pope" on TikTok when looking
+// for "Tim Pope") from polluting name-based candidate generation.
+func filterHighConfidenceForNames(profiles []*profile.Profile) []*profile.Profile {
+	var result []*profile.Profile
+	for _, p := range profiles {
+		// Only include profiles with confidence >= 0.6, or non-guess profiles (always trusted)
+		if !p.IsGuess || p.Confidence >= 0.6 {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
 // extractNames extracts full names from profiles for name-based guessing (e.g., LinkedIn slugs).
 func extractNames(profiles []*profile.Profile) []string {
 	seen := make(map[string]bool)
@@ -616,11 +838,22 @@ func isNumeric(s string) bool {
 	return s != ""
 }
 
+// maxCandidatesPerPlatform limits how many URLs we try per platform to avoid excessive requests.
+const maxCandidatesPerPlatform = 3
+
 func generateCandidates(usernames []string, names []string, knownURLs map[string]bool, knownPlatforms map[string]bool, vouchedPlatforms map[string]bool) []candidateURL {
-	var candidates []candidateURL
+	// Track candidates per platform, prioritizing higher-quality guesses
+	platformCandidates := make(map[string][]candidateURL)
+
+	// Sort usernames by quality (longer usernames with digits are more unique)
+	sortedUsernames := make([]string, len(usernames))
+	copy(sortedUsernames, usernames)
+	sort.Slice(sortedUsernames, func(i, j int) bool {
+		return usernameQuality(sortedUsernames[i]) > usernameQuality(sortedUsernames[j])
+	})
 
 	// Generate username-based candidates
-	for _, username := range usernames {
+	for _, username := range sortedUsernames {
 		// Add platform patterns
 		for _, pp := range platformPatterns {
 			// Skip platforms we already have a verified profile for
@@ -628,14 +861,19 @@ func generateCandidates(usernames []string, names []string, knownURLs map[string
 				continue
 			}
 
-			// Skip LinkedIn for usernames with underscores (LinkedIn only allows hyphens)
-			if pp.name == "linkedin" && strings.Contains(username, "_") {
+			// Skip if we already have enough candidates for this platform
+			if len(platformCandidates[pp.name]) >= maxCandidatesPerPlatform {
+				continue
+			}
+
+			// Skip if username doesn't meet platform requirements
+			if !isValidUsernameForPlatform(username, pp.name) {
 				continue
 			}
 
 			url := strings.Replace(pp.pattern, "%s", username, 1)
 			if !knownURLs[normalizeURL(url)] {
-				candidates = append(candidates, candidateURL{
+				platformCandidates[pp.name] = append(platformCandidates[pp.name], candidateURL{
 					url:       url,
 					username:  username,
 					platform:  pp.name,
@@ -645,11 +883,18 @@ func generateCandidates(usernames []string, names []string, knownURLs map[string
 		}
 
 		// Add Mastodon servers only if we don't already have a Mastodon profile
-		if !knownPlatforms["mastodon"] {
+		if !knownPlatforms["mastodon"] && len(platformCandidates["mastodon"]) < maxCandidatesPerPlatform {
+			// Check if username is valid for Mastodon
+			if !isValidUsernameForPlatform(username, "mastodon") {
+				continue
+			}
 			for _, server := range mastodonServers {
+				if len(platformCandidates["mastodon"]) >= maxCandidatesPerPlatform {
+					break
+				}
 				url := "https://" + server + "/@" + username
 				if !knownURLs[normalizeURL(url)] {
-					candidates = append(candidates, candidateURL{
+					platformCandidates["mastodon"] = append(platformCandidates["mastodon"], candidateURL{
 						url:       url,
 						username:  username,
 						platform:  "mastodon",
@@ -661,46 +906,82 @@ func generateCandidates(usernames []string, names []string, knownURLs map[string
 	}
 
 	// Generate name-based LinkedIn candidates only if we don't have a vouched LinkedIn profile
-	// Username-based guesses may find wrong people (common usernames), so we still try
-	// name-based guessing. But if we have a vouched LinkedIn from a trusted source, skip.
-	if vouchedPlatforms["linkedin"] {
-		return candidates
-	}
-	for _, name := range names {
-		slug := slugifyName(name)
-		if slug == "" || len(slug) < 3 {
-			continue
-		}
+	// and haven't hit the limit yet
+	if !vouchedPlatforms["linkedin"] && len(platformCandidates["linkedin"]) < maxCandidatesPerPlatform {
+		for _, name := range names {
+			if len(platformCandidates["linkedin"]) >= maxCandidatesPerPlatform {
+				break
+			}
 
-		// Try hyphenated version (e.g., dan-lorenc)
-		url := "https://www.linkedin.com/in/" + slug + "/"
-		if !knownURLs[normalizeURL(url)] {
-			candidates = append(candidates, candidateURL{
-				url:        url,
-				username:   slug,
-				platform:   "linkedin",
-				matchType:  "name",
-				sourceName: name,
-			})
-		}
+			slug := slugifyName(name)
+			if slug == "" || len(slug) < 3 {
+				continue
+			}
 
-		// Also try without hyphens (e.g., danlorenc)
-		slugNoHyphens := strings.ReplaceAll(slug, "-", "")
-		if slugNoHyphens != slug && len(slugNoHyphens) >= 3 {
-			urlNoHyphens := "https://www.linkedin.com/in/" + slugNoHyphens + "/"
-			if !knownURLs[normalizeURL(urlNoHyphens)] {
-				candidates = append(candidates, candidateURL{
-					url:        urlNoHyphens,
-					username:   slugNoHyphens,
+			// Try hyphenated version (e.g., dan-lorenc)
+			url := "https://www.linkedin.com/in/" + slug + "/"
+			if !knownURLs[normalizeURL(url)] && len(platformCandidates["linkedin"]) < maxCandidatesPerPlatform {
+				platformCandidates["linkedin"] = append(platformCandidates["linkedin"], candidateURL{
+					url:        url,
+					username:   slug,
 					platform:   "linkedin",
 					matchType:  "name",
 					sourceName: name,
 				})
 			}
+
+			// Also try without hyphens (e.g., danlorenc)
+			slugNoHyphens := strings.ReplaceAll(slug, "-", "")
+			if slugNoHyphens != slug && len(slugNoHyphens) >= 3 {
+				urlNoHyphens := "https://www.linkedin.com/in/" + slugNoHyphens + "/"
+				if !knownURLs[normalizeURL(urlNoHyphens)] && len(platformCandidates["linkedin"]) < maxCandidatesPerPlatform {
+					platformCandidates["linkedin"] = append(platformCandidates["linkedin"], candidateURL{
+						url:        urlNoHyphens,
+						username:   slugNoHyphens,
+						platform:   "linkedin",
+						matchType:  "name",
+						sourceName: name,
+					})
+				}
+			}
 		}
 	}
 
+	// Flatten the map into a slice
+	var candidates []candidateURL
+	for _, platformCands := range platformCandidates {
+		candidates = append(candidates, platformCands...)
+	}
+
 	return candidates
+}
+
+// usernameQuality returns a score for how unique/reliable a username is for guessing.
+// Higher scores = better quality (longer usernames, usernames with digits).
+func usernameQuality(username string) int {
+	score := len(username)
+
+	// Usernames with digits are more unique
+	if containsDigit(username) {
+		score += 5
+	}
+
+	// Usernames with underscores or dots are often more unique
+	if strings.ContainsAny(username, "_.") {
+		score += 3
+	}
+
+	return score
+}
+
+// containsDigit returns true if the string contains at least one digit.
+func containsDigit(s string) bool {
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeURL(url string) string {
@@ -742,19 +1023,10 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 		// Username match scoring
 		guessedUser := strings.ToLower(guessed.Username)
 
-		// Check if username has digits (more unique)
-		hasDigits := false
-		for _, c := range targetUsername {
-			if c >= '0' && c <= '9' {
-				hasDigits = true
-				break
-			}
-		}
-
-		// Username match scoring - lower confidence for short usernames without digits
+		// Username match scoring - penalize only very short/common usernames
 		if guessedUser == targetUsername {
-			if len(targetUsername) < 6 && !hasDigits {
-				// Short username without digits gets minimal base score
+			// Very short usernames (3-4 chars) without digits are likely common names
+			if len(targetUsername) <= 4 && !containsDigit(targetUsername) {
 				score += 0.1
 			} else {
 				score += 0.3
@@ -769,7 +1041,7 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 	// Track best signals (don't accumulate across profiles)
 	var hasLink bool
 	var bestNameScore, bestLocScore, bestBioScore float64
-	var hasWebsiteMatch, hasEmployerMatch, hasOrgMatch bool
+	var hasWebsiteMatch, hasEmployerMatch, hasOrgMatch, hasInterestMatch bool
 
 	// Check against each known profile for additional signals
 	for _, k := range known {
@@ -891,6 +1163,14 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 				}
 			}
 		}
+
+		// Check interest match (Reddit subreddits matching GitHub bio/interests, or shared bio topics)
+		if !hasInterestMatch {
+			if scoreInterestMatch(guessed, k) {
+				hasInterestMatch = true
+				matches = append(matches, "interest:"+k.Platform)
+			}
+		}
 	}
 
 	// Add best signals to score (only once, not per profile)
@@ -922,6 +1202,10 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 	if hasOrgMatch {
 		// Organization match is a strong signal (e.g., GitHub org matches bio mention)
 		score += 0.30
+	}
+	if hasInterestMatch {
+		// Interest match (e.g., Reddit subreddit "vim" matches GitHub bio "Vim plugin artist")
+		score += 0.25
 	}
 
 	// Tech title bonus: if the profile has a tech-related title, it's more likely to be the same person
@@ -1342,4 +1626,135 @@ func scoreOrganizationMatch(orgs []string, bio string, employer string, unstruct
 	}
 
 	return false
+}
+
+// scoreInterestMatch checks if profiles share common interests.
+// This catches cases like:
+// - Reddit subreddit "vim" matching GitHub bio "Vim plugin artist".
+// - Medium bio "I wrote a lot of Vim pumpkins" matching GitHub bio "Vim plugin artist".
+// - Subreddits matching GitHub organizations (e.g., r/kubernetes + kubernetes org).
+func scoreInterestMatch(a, b *profile.Profile) bool {
+	// Extract interests from both profiles
+	interestsA := extractInterests(a)
+	interestsB := extractInterests(b)
+
+	if len(interestsA) == 0 || len(interestsB) == 0 {
+		return false
+	}
+
+	// Check for overlap - any shared interest is a match
+	for interest := range interestsA {
+		if interestsB[interest] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractInterests extracts interest keywords from a profile.
+// Sources: bio, subreddits (Reddit), organizations (GitHub), unstructured content.
+func extractInterests(p *profile.Profile) map[string]bool {
+	interests := make(map[string]bool)
+
+	// Extract from subreddits (Reddit profiles store these in Fields)
+	if p.Fields != nil {
+		if subs := p.Fields["subreddits"]; subs != "" {
+			for _, sub := range strings.Split(subs, ",") {
+				sub = strings.TrimSpace(strings.ToLower(sub))
+				if sub != "" && len(sub) >= 2 {
+					interests[sub] = true
+				}
+			}
+		}
+
+		// Extract from GitHub organizations
+		if orgs := p.Fields["organizations"]; orgs != "" {
+			for _, org := range strings.Split(orgs, ",") {
+				org = strings.TrimSpace(strings.ToLower(org))
+				// Normalize org names (remove common suffixes)
+				org = strings.TrimSuffix(org, "-dev")
+				org = strings.TrimSuffix(org, "-org")
+				org = strings.TrimSuffix(org, "-io")
+				org = strings.TrimSuffix(org, "-labs")
+				if org != "" && len(org) >= 2 {
+					interests[org] = true
+				}
+			}
+		}
+	}
+
+	// Extract interest keywords from bio
+	bioInterests := extractInterestKeywords(p.Bio)
+	for k, v := range bioInterests {
+		interests[k] = v
+	}
+
+	// Extract from unstructured content (Reddit comments, etc.)
+	if p.Unstructured != "" {
+		unstructuredInterests := extractInterestKeywords(p.Unstructured)
+		for k, v := range unstructuredInterests {
+			interests[k] = v
+		}
+	}
+
+	return interests
+}
+
+// extractInterestKeywords extracts technology/interest keywords from text.
+// These are specific enough to be meaningful signals when matched across profiles.
+func extractInterestKeywords(text string) map[string]bool {
+	if text == "" {
+		return nil
+	}
+
+	interests := make(map[string]bool)
+	textLower := strings.ToLower(text)
+
+	// Technology/tool keywords that are specific enough to be meaningful
+	// These should match subreddit names and common GitHub topics
+	techKeywords := []string{
+		// Editors
+		"vim", "neovim", "emacs", "vscode",
+		// Languages
+		"golang", "rust", "python", "javascript", "typescript", "ruby", "elixir", "haskell", "scala", "kotlin", "swift",
+		// Infrastructure
+		"kubernetes", "docker", "terraform", "ansible", "linux", "nixos", "homelab",
+		// Frameworks
+		"react", "vue", "angular", "django", "rails", "flask", "nextjs",
+		// Security
+		"infosec", "security", "cryptography", "malware",
+		// DevOps/Cloud
+		"devops", "aws", "azure", "gcp", "cloudflare",
+		// Data
+		"machinelearning", "datascience", "postgres", "mysql", "redis", "elasticsearch",
+		// Mobile
+		"ios", "android", "flutter", "reactnative",
+		// Other tech
+		"git", "github", "gitlab", "opensource",
+	}
+
+	for _, kw := range techKeywords {
+		if strings.Contains(textLower, kw) {
+			interests[kw] = true
+		}
+	}
+
+	// Also check for specific patterns like "X plugin" or "X developer"
+	// to catch things like "vim plugin artist"
+	for _, kw := range techKeywords {
+		patterns := []string{
+			kw + " plugin",
+			kw + " developer",
+			kw + " engineer",
+			kw + " maintainer",
+		}
+		for _, pattern := range patterns {
+			if strings.Contains(textLower, pattern) {
+				interests[kw] = true
+			}
+		}
+	}
+
+	return interests
 }

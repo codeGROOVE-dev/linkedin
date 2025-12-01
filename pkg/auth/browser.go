@@ -114,8 +114,24 @@ func (s *BrowserSource) filterEssentialCookies(kookies []*kooky.Cookie, platform
 	for _, c := range kookies {
 		if essentialSet[c.Name] {
 			cookies[c.Name] = c.Value
-			s.logger.Debug("found essential cookie", "name", c.Name, "len", len(c.Value))
 		}
+	}
+
+	// Log which essential cookies were found vs missing
+	var found, missing []string
+	for _, name := range essential {
+		if _, ok := cookies[name]; ok {
+			found = append(found, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+
+	if len(found) > 0 {
+		s.logger.Info("browser cookies found", "platform", platform, "keys", found)
+	}
+	if len(missing) > 0 {
+		s.logger.Info("browser cookies missing", "platform", platform, "keys", missing)
 	}
 
 	return cookies
