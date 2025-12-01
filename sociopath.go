@@ -23,6 +23,7 @@ package sociopath
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/codeGROOVE-dev/sociopath/bilibili"
@@ -544,8 +545,14 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 			linksToQueue = append(linksToQueue, p.Website)
 		}
 
-		// Queue links from Fields map
-		for key, value := range p.Fields {
+		// Queue links from Fields map (sorted for deterministic iteration order)
+		fieldKeys := make([]string, 0, len(p.Fields))
+		for key := range p.Fields {
+			fieldKeys = append(fieldKeys, key)
+		}
+		sort.Strings(fieldKeys)
+		for _, key := range fieldKeys {
+			value := p.Fields[key]
 			if isLikelySocialURL(key, value) && !visited[normalizeURL(value)] {
 				linksToQueue = append(linksToQueue, value)
 			}

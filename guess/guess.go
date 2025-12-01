@@ -4,6 +4,7 @@ package guess
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -396,6 +397,14 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 
 	// Filter to only highest confidence per platform
 	guessed = filterHighestConfidencePerPlatform(guessed)
+
+	// Sort for deterministic output (platform, then URL)
+	sort.Slice(guessed, func(i, j int) bool {
+		if guessed[i].Platform != guessed[j].Platform {
+			return guessed[i].Platform < guessed[j].Platform
+		}
+		return guessed[i].URL < guessed[j].URL
+	})
 
 	return guessed
 }

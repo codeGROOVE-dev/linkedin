@@ -68,6 +68,8 @@ func TestIsEmailURL(t *testing.T) {
 	}{
 		{"https email", "https://user@example.com", true},
 		{"http email", "http://user@example.com", true},
+		{"mailto link", "mailto:user@example.com", true},
+		{"mailto uppercase", "MAILTO:user@example.com", true},
 		{"regular URL", "https://example.com", false},
 		{"email without protocol", "user@example.com", false},
 		{"github URL", "https://github.com/user", false},

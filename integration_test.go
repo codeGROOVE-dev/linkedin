@@ -597,7 +597,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				Username:      "williamhgates",
 				Name:          "Bill Gates",
 				Bio:           "Chair, Gates Foundation and Founder, Breakthrough Energy",
-				Location:      "Seattle, Washington, United States",
+				Location:      "Seattle, Washington",
 			},
 			// LinkedIn test should verify Bio, Location; Fields may vary based on API availability
 			cmpOpts: []cmp.Option{
@@ -625,7 +625,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				Authenticated: true,
 				Username:      "mattmoor",
 				Name:          "Matt Moore",
-				Location:      "Kirkland, Washington, United States",
+				Location:      "Kirkland, Washington",
 				Fields:        map[string]string{},
 			},
 			// LinkedIn profile verification - employer extraction depends on API access and profile settings
@@ -655,7 +655,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				Authenticated: true,
 				Username:      "austen-bryan-23485a19",
 				Name:          "Austen Bryan",
-				Location:      "Omaha, Nebraska, United States",
+				Location:      "Omaha, Nebraska",
 				Fields:        map[string]string{},
 			},
 			// LinkedIn profile verification - employer extraction depends on API access and profile settings

@@ -156,8 +156,12 @@ func ExtractEmailFromURL(urlStr string) (string, bool) {
 	return "", false
 }
 
-// IsEmailURL returns true if the URL is actually an email address with http(s):// prefix.
+// IsEmailURL returns true if the URL is a mailto: link or an email address with http(s):// prefix.
 func IsEmailURL(urlStr string) bool {
+	lower := strings.ToLower(urlStr)
+	if strings.HasPrefix(lower, "mailto:") {
+		return true
+	}
 	_, ok := ExtractEmailFromURL(urlStr)
 	return ok
 }

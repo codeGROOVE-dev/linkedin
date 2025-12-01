@@ -376,19 +376,28 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 
 	// Add website or email
 	if ghUser.Blog != "" {
-		// GitHub sometimes stores URLs without protocol
-		website := ghUser.Blog
-		if !strings.HasPrefix(website, "http") {
-			website = "https://" + website
-		}
+		blog := ghUser.Blog
+		blogLower := strings.ToLower(blog)
 
-		// Check if this is actually an email address with http(s):// prefix
-		if email, isEmail := htmlutil.ExtractEmailFromURL(website); isEmail {
+		// Check for mailto: links first
+		if strings.HasPrefix(blogLower, "mailto:") {
+			email := strings.TrimPrefix(blogLower, "mailto:")
 			p.Fields["email"] = email
 		} else {
-			p.Website = website
-			p.Fields["website"] = website
-			// Don't add to SocialLinks - it's already in p.Website which is followed by recursive mode
+			// GitHub sometimes stores URLs without protocol
+			website := blog
+			if !strings.HasPrefix(website, "http") {
+				website = "https://" + website
+			}
+
+			// Check if this is actually an email address with http(s):// prefix
+			if email, isEmail := htmlutil.ExtractEmailFromURL(website); isEmail {
+				p.Fields["email"] = email
+			} else {
+				p.Website = website
+				p.Fields["website"] = website
+				// Don't add to SocialLinks - it's already in p.Website which is followed by recursive mode
+			}
 		}
 	}
 

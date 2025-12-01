@@ -146,12 +146,14 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 		return prof, parseErr
 	}
 
+	// Extract URN for API calls
+	username := extractPublicID(urlStr)
+	memberURN := extractMemberURN(body)
+	c.logger.DebugContext(ctx, "extracted for API call", "username", username, "memberURN", memberURN)
+
 	// If no employer found from HTML parsing, try the Voyager API
 	c.logger.DebugContext(ctx, "checking employer", "employer", prof.Fields["employer"])
 	if prof.Fields["employer"] == "" || prof.Fields["title"] == "" {
-		username := extractPublicID(urlStr)
-		memberURN := extractMemberURN(body)
-		c.logger.DebugContext(ctx, "extracted for API call", "username", username, "memberURN", memberURN)
 		if username != "" || memberURN != "" {
 			exp := c.fetchExperienceFromAPI(ctx, username, memberURN)
 			if exp.employer != "" && prof.Fields["employer"] == "" {
@@ -162,6 +164,15 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 				prof.Fields["title"] = exp.title
 				c.logger.DebugContext(ctx, "title found via API", "title", exp.title)
 			}
+		}
+	}
+
+	// If no location found from HTML parsing, try the Voyager API
+	if prof.Location == "" && memberURN != "" {
+		loc := c.fetchLocationFromAPI(ctx, memberURN)
+		if loc != "" {
+			prof.Location = loc
+			c.logger.DebugContext(ctx, "location found via API", "location", loc)
 		}
 	}
 
@@ -226,6 +237,103 @@ func (c *Client) fetchExperienceFromAPI(ctx context.Context, _ string, memberURN
 	exp := extractExperienceFromGraphQLResponse(body)
 	c.logger.DebugContext(ctx, "voyager api response parsed", "title", exp.title, "employer", exp.employer, "bodySize", len(body))
 	return exp
+}
+
+// fetchLocationFromAPI fetches the user's location from the LinkedIn Voyager API.
+// This is used as a fallback when location isn't found in the HTML response.
+func (c *Client) fetchLocationFromAPI(ctx context.Context, memberURN string) string {
+	if err := c.ensureSessionCookies(ctx); err != nil {
+		c.logger.DebugContext(ctx, "failed to get session cookies for location", "error", err)
+		return ""
+	}
+
+	if memberURN == "" {
+		return ""
+	}
+
+	// Use the profile components endpoint with TOP_CARD section to get location
+	profileURN := url.QueryEscape(fmt.Sprintf("urn:li:fsd_profile:%s", memberURN))
+	queryID := "voyagerIdentityDashProfileComponents.7af5d6f176f11583b382e37e5639e69e"
+	baseURL := "https://www.linkedin.com/voyager/api/graphql"
+	apiURL := fmt.Sprintf("%s?variables=(profileUrn:%s,sectionType:TOP_CARD)&queryId=%s&includeWebMetadata=true",
+		baseURL, profileURN, queryID)
+
+	c.logger.DebugContext(ctx, "fetching location from voyager api", "url", apiURL)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
+	if err != nil {
+		c.logger.DebugContext(ctx, "location api request creation failed", "error", err)
+		return ""
+	}
+
+	setVoyagerHeaders(req, c.httpClient, c.logger)
+	req.Header.Set("Accept", "application/vnd.linkedin.normalized+json+2.1")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.DebugContext(ctx, "location api request failed", "error", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.DebugContext(ctx, "location api request failed", "status", resp.StatusCode)
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.DebugContext(ctx, "location api body read failed", "error", err)
+		return ""
+	}
+
+	c.logger.DebugContext(ctx, "location api response", "bodySize", len(body))
+
+	// Extract location from the response
+	// Look for geoLocation or locationName patterns
+	return extractLocationFromGraphQLResponse(body)
+}
+
+func extractLocationFromGraphQLResponse(body []byte) string {
+	// Try multiple patterns for location extraction
+	// Pattern 1: "geoLocationName":"Greater Boston"
+	geoNameRe := regexp.MustCompile(`"geoLocationName"\s*:\s*"([^"]+)"`)
+	if m := geoNameRe.FindSubmatch(body); len(m) > 1 {
+		loc := strings.TrimSpace(string(m[1]))
+		if loc != "" && loc != "null" {
+			return loc
+		}
+	}
+
+	// Pattern 2: "locationName":"Greater Boston"
+	locNameRe := regexp.MustCompile(`"locationName"\s*:\s*"([^"]+)"`)
+	if m := locNameRe.FindSubmatch(body); len(m) > 1 {
+		loc := strings.TrimSpace(string(m[1]))
+		if loc != "" && loc != "null" {
+			return loc
+		}
+	}
+
+	// Pattern 3: "defaultLocalizedName" in geo context (looking for longer locations)
+	defaultLocRe := regexp.MustCompile(`"defaultLocalizedName"\s*:\s*"([^"]{10,})"`)
+	if m := defaultLocRe.FindSubmatch(body); len(m) > 1 {
+		loc := strings.TrimSpace(string(m[1]))
+		// Filter out common non-location values
+		if loc != "" && loc != "null" && !strings.Contains(strings.ToLower(loc), "linkedin") {
+			return loc
+		}
+	}
+
+	// Pattern 4: Look for geo object with text field
+	geoTextRe := regexp.MustCompile(`"geo"[^}]*"text"\s*:\s*"([^"]+)"`)
+	if m := geoTextRe.FindSubmatch(body); len(m) > 1 {
+		loc := strings.TrimSpace(string(m[1]))
+		if loc != "" && loc != "null" {
+			return loc
+		}
+	}
+
+	return ""
 }
 
 // ensureSessionCookies makes a request to LinkedIn to get session cookies (JSESSIONID).
@@ -346,58 +454,60 @@ type experienceData struct {
 func extractExperienceFromGraphQLResponse(body []byte) experienceData {
 	result := experienceData{}
 
-	// The GraphQL response has a complex nested structure
-	// We look for job title in titleV2 and company in subtitle
-	// Structure: data.elements[].components.entityComponent.titleV2.text.text = "Job Title"
-	// Structure: data.elements[].components.entityComponent.subtitle.text = "Company · Full-time · Duration"
+	// The GraphQL response has all text fields as sequential "text":"value" pairs
+	// For the current position, the order is:
+	// 1. Duration: "Oct 2021 - Present · 4 yrs 3 mos"
+	// 2. Title: "Undisclosed" (or actual job title)
+	// 3. Company: "/tmp/x · Full-time" (company name + employment type)
+	//
+	// We need to find the title and company that belong together by looking
+	// at the sequence of text fields after the duration pattern.
 
-	// Try JSON parsing first (more reliable)
-	var data struct {
-		Data struct {
-			IdentityDashProfileComponentsBySectionType struct {
-				Elements []struct {
-					Components struct {
-						EntityComponent struct {
-							TitleV2 struct {
-								Text struct {
-									Text string `json:"text"`
-								} `json:"text"`
-							} `json:"titleV2"`
-							Subtitle struct {
-								Text string `json:"text"`
-							} `json:"subtitle"`
-						} `json:"entityComponent"`
-					} `json:"components"`
-				} `json:"elements"`
-			} `json:"identityDashProfileComponentsBySectionType"`
-		} `json:"data"`
-	}
+	// Extract all "text":"value" pairs in order
+	textRe := regexp.MustCompile(`"text":"([^"]+)"`)
+	matches := textRe.FindAllSubmatch(body, -1)
 
-	if err := json.Unmarshal(body, &data); err == nil {
-		elements := data.Data.IdentityDashProfileComponentsBySectionType.Elements
-		if len(elements) > 0 {
-			// The first element is usually the current position
-			elem := elements[0].Components.EntityComponent
+	// Find the first occurrence of a duration pattern (indicates start of first experience)
+	// Duration patterns look like: "Oct 2021 - Present · 4 yrs" or "Jan 2008 - Dec 2019 · 12 yrs"
+	durationRe := regexp.MustCompile(`^[A-Z][a-z]{2} \d{4} - `)
 
-			// Extract job title from titleV2
-			if title := elem.TitleV2.Text.Text; title != "" && title != "USER_LOCALE" {
-				result.title = title
-			}
+	for i, m := range matches {
+		text := string(m[1])
+		// Skip common non-content values
+		if text == "USER_LOCALE" || text == "" {
+			continue
+		}
 
-			// Extract employer from subtitle (format: "Company · Employment Type · Duration")
-			if subtitle := elem.Subtitle.Text; subtitle != "" {
-				parts := strings.Split(subtitle, " · ")
-				if len(parts) > 0 && parts[0] != "" && parts[0] != "USER_LOCALE" {
-					result.employer = parts[0]
+		// If we find a duration pattern, the next entries should be title and company
+		if durationRe.MatchString(text) {
+			// Look at the next two text fields for title and company
+			if i+1 < len(matches) {
+				title := string(matches[i+1][1])
+				if title != "" && title != "USER_LOCALE" && !durationRe.MatchString(title) {
+					result.title = title
 				}
+			}
+			if i+2 < len(matches) {
+				companyInfo := string(matches[i+2][1])
+				if companyInfo != "" && companyInfo != "USER_LOCALE" && !durationRe.MatchString(companyInfo) {
+					// Company format is "Company · Employment Type" - extract just the company
+					parts := strings.Split(companyInfo, " · ")
+					if len(parts) > 0 && parts[0] != "" {
+						result.employer = parts[0]
+					}
+				}
+			}
+			// Found the first experience entry, we're done
+			if result.title != "" {
+				break
 			}
 		}
 	}
 
-	// Fallback to regex if JSON parsing didn't find the data
+	// Fallback: if no duration pattern found, try titleV2 structure
 	if result.title == "" {
-		titleRe := regexp.MustCompile(`"titleV2":\{[^}]*"text":\{[^}]*"text":"([^"]+)"`)
-		if m := titleRe.FindSubmatch(body); len(m) > 1 {
+		titleV2Re := regexp.MustCompile(`"titleV2":\{[^}]*"text":\{[^}]*"text":"([^"]+)"`)
+		if m := titleV2Re.FindSubmatch(body); len(m) > 1 {
 			title := strings.TrimSpace(string(m[1]))
 			if title != "" && title != "USER_LOCALE" {
 				result.title = title
@@ -405,18 +515,7 @@ func extractExperienceFromGraphQLResponse(body []byte) experienceData {
 		}
 	}
 
-	if result.employer == "" {
-		// Try subtitle regex pattern
-		subtitleRe := regexp.MustCompile(`"subtitle":\{[^}]*"text":\{[^}]*"text":"([^"·]+)\s*·`)
-		if m := subtitleRe.FindSubmatch(body); len(m) > 1 {
-			employer := strings.TrimSpace(string(m[1]))
-			if employer != "" && employer != "USER_LOCALE" {
-				result.employer = employer
-			}
-		}
-	}
-
-	// Fallback for employer: company logo accessibility text
+	// Fallback for employer: company logo accessibility text (first one should be current employer)
 	if result.employer == "" {
 		logoRe := regexp.MustCompile(`"accessibilityText":"([^"]+) logo"`)
 		if m := logoRe.FindSubmatch(body); len(m) > 1 {
@@ -646,8 +745,16 @@ func applyProfileData(p *profile.Profile, data profileData, fullContent string) 
 	}
 
 	// Location extraction - prefer longer location names (city, state, country) over short ones (just country)
+	// "Greater Boston" is 14 chars, so we use 10+ as minimum to filter out country-only entries
 	if p.Location == "" {
-		re := regexp.MustCompile(`"defaultLocalizedName"\s*:\s*"([^"]{15,})"`)
+		// Try defaultLocalizedNameWithoutCountryName first (more specific)
+		re := regexp.MustCompile(`"defaultLocalizedNameWithoutCountryName"\s*:\s*"([^"]{5,})"`)
+		if m := re.FindStringSubmatch(fullContent); len(m) > 1 {
+			p.Location = unescapeJSON(m[1])
+		}
+	}
+	if p.Location == "" {
+		re := regexp.MustCompile(`"defaultLocalizedName"\s*:\s*"([^"]{10,})"`)
 		if m := re.FindStringSubmatch(fullContent); len(m) > 1 {
 			p.Location = unescapeJSON(m[1])
 		}

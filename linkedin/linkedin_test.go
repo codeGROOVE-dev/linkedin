@@ -229,3 +229,94 @@ func TestParseProfileKeepsURLWhenMatching(t *testing.T) {
 		t.Errorf("parseProfile URL = %q, want %q (should keep original when matching)", prof.URL, requestedURL)
 	}
 }
+
+func TestExtractLocationFromGraphQLResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+		want string
+	}{
+		{
+			name: "geoLocationName",
+			json: `{"geoLocationName":"Greater Boston"}`,
+			want: "Greater Boston",
+		},
+		{
+			name: "locationName",
+			json: `{"locationName":"San Francisco Bay Area"}`,
+			want: "San Francisco Bay Area",
+		},
+		{
+			name: "defaultLocalizedName long",
+			json: `{"defaultLocalizedName":"New York City Metropolitan Area"}`,
+			want: "New York City Metropolitan Area",
+		},
+		{
+			name: "geo text field",
+			json: `{"geo":{"text":"Seattle, Washington"}}`,
+			want: "Seattle, Washington",
+		},
+		{
+			name: "null location",
+			json: `{"geoLocationName":"null"}`,
+			want: "",
+		},
+		{
+			name: "empty response",
+			json: `{}`,
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractLocationFromGraphQLResponse([]byte(tt.json))
+			if got != tt.want {
+				t.Errorf("extractLocationFromGraphQLResponse() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseProfile_LocationExtraction(t *testing.T) {
+	// Test that location is extracted from defaultLocalizedNameWithoutCountryName in code blocks
+	// This mirrors real LinkedIn HTML where location data is embedded in JSON within <code> tags
+	html := `<!DOCTYPE html>
+<html>
+<head><title>Stephen Fox Jr. | LinkedIn</title></head>
+<body>
+<code id="bpr-guid-123">{"publicIdentifier":"stephen-fox-jr","firstName":"Stephen","lastName":"Fox Jr."}</code>
+<code id="bpr-guid-456">{"$type":"com.linkedin.voyager.dash.common.Geo","defaultLocalizedNameWithoutCountryName":"Greater Boston","*country":"urn:li:fsd_geo:103644278","entityUrn":"urn:li:fsd_geo:90000084"}</code>
+</body>
+</html>`
+
+	prof, err := parseProfile([]byte(html), "https://www.linkedin.com/in/stephen-fox-jr/")
+	if err != nil {
+		t.Fatalf("parseProfile() error = %v", err)
+	}
+
+	if prof.Location != "Greater Boston" {
+		t.Errorf("Location = %q, want %q", prof.Location, "Greater Boston")
+	}
+}
+
+func TestParseProfile_LocationFromDefaultLocalizedName(t *testing.T) {
+	// Test fallback to defaultLocalizedName when defaultLocalizedNameWithoutCountryName is not present
+	html := `<!DOCTYPE html>
+<html>
+<head><title>John Doe | LinkedIn</title></head>
+<body>
+<code id="bpr-guid-123">{"publicIdentifier":"johndoe","firstName":"John","lastName":"Doe"}</code>
+<code id="bpr-guid-456">{"$type":"com.linkedin.voyager.dash.common.Geo","defaultLocalizedName":"San Francisco Bay Area","entityUrn":"urn:li:fsd_geo:90000084"}</code>
+</body>
+</html>`
+
+	prof, err := parseProfile([]byte(html), "https://www.linkedin.com/in/johndoe/")
+	if err != nil {
+		t.Fatalf("parseProfile() error = %v", err)
+	}
+
+	if prof.Location != "San Francisco Bay Area" {
+		t.Errorf("Location = %q, want %q", prof.Location, "San Francisco Bay Area")
+	}
+}
