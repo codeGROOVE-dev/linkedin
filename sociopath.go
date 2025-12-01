@@ -28,6 +28,7 @@ import (
 	"github.com/codeGROOVE-dev/sociopath/bilibili"
 	"github.com/codeGROOVE-dev/sociopath/bluesky"
 	"github.com/codeGROOVE-dev/sociopath/cache"
+	"github.com/codeGROOVE-dev/sociopath/codeberg"
 	"github.com/codeGROOVE-dev/sociopath/devto"
 	"github.com/codeGROOVE-dev/sociopath/generic"
 	"github.com/codeGROOVE-dev/sociopath/github"
@@ -124,6 +125,8 @@ func Fetch(ctx context.Context, url string, opts ...Option) (*profile.Profile, e
 		return fetchSubstack(ctx, url, cfg)
 	case bilibili.Match(url):
 		return fetchBilibili(ctx, url, cfg)
+	case codeberg.Match(url):
+		return fetchCodeberg(ctx, url, cfg)
 	case bluesky.Match(url):
 		return fetchBlueSky(ctx, url, cfg)
 	case devto.Match(url):
@@ -417,6 +420,22 @@ func fetchBilibili(ctx context.Context, url string, cfg *config) (*profile.Profi
 	return client.Fetch(ctx, url)
 }
 
+func fetchCodeberg(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []codeberg.Option
+	if cfg.cache != nil {
+		opts = append(opts, codeberg.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, codeberg.WithLogger(cfg.logger))
+	}
+
+	client, err := codeberg.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
 func fetchGeneric(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
 	var opts []generic.Option
 	if cfg.cache != nil {
@@ -563,6 +582,7 @@ func isSocialPlatform(url string) bool {
 		twitter.Match(url) ||
 		linktree.Match(url) ||
 		github.Match(url) ||
+		codeberg.Match(url) ||
 		medium.Match(url) ||
 		reddit.Match(url) ||
 		youtube.Match(url) ||
@@ -642,7 +662,7 @@ func isLikelySocialURL(key, value string) bool {
 // isSingleAccountPlatform returns true for platforms where users typically have a single account.
 func isSingleAccountPlatform(platform string) bool {
 	switch platform {
-	case "github", "linkedin", "twitter", "reddit", "youtube",
+	case "github", "codeberg", "linkedin", "twitter", "reddit", "youtube",
 		"stackoverflow", "bluesky", "mastodon", "medium",
 		"instagram", "tiktok", "vkontakte":
 		return true
@@ -663,6 +683,8 @@ func PlatformForURL(url string) string {
 		return "linktree"
 	case github.Match(url):
 		return "github"
+	case codeberg.Match(url):
+		return "codeberg"
 	case medium.Match(url):
 		return "medium"
 	case reddit.Match(url):
@@ -699,6 +721,8 @@ func platformMatches(url, platform string) bool {
 	switch platform {
 	case "github":
 		return github.Match(url)
+	case "codeberg":
+		return codeberg.Match(url)
 	case "linkedin":
 		return linkedin.Match(url)
 	case "twitter":

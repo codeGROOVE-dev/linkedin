@@ -143,3 +143,37 @@ func TestFilterSamePlatformLinks(t *testing.T) {
 		})
 	}
 }
+
+func TestFetch_InvalidUsername(t *testing.T) {
+	ctx := context.Background()
+	client, _ := New(ctx)
+
+	_, err := client.Fetch(ctx, "https://tiktok.com/video/123")
+	if err == nil {
+		t.Error("Fetch() expected error for invalid URL, got nil")
+	}
+}
+
+func TestWithOptions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with_cookies", func(t *testing.T) {
+		client, err := New(ctx, WithCookies(map[string]string{"test": "value"}))
+		if err != nil {
+			t.Fatalf("New(WithCookies) error = %v", err)
+		}
+		if client == nil {
+			t.Fatal("New(WithCookies) returned nil")
+		}
+	})
+
+	t.Run("with_browser_cookies", func(t *testing.T) {
+		client, err := New(ctx, WithBrowserCookies())
+		if err != nil {
+			t.Fatalf("New(WithBrowserCookies) error = %v", err)
+		}
+		if client == nil {
+			t.Fatal("New(WithBrowserCookies) returned nil")
+		}
+	})
+}

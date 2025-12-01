@@ -1,6 +1,11 @@
 package generic
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestMatch(t *testing.T) {
 	// Generic always matches
@@ -35,8 +40,11 @@ func TestValidateURL(t *testing.T) {
 		{"https://10.0.0.1", true},
 		{"https://169.254.169.254", true},
 		{"https://metadata.google.internal", true},
+		{"https://metadata.azure.com", true},
 		{"https://foo.local", true},
 		{"https://foo.internal", true},
+		{"https://[::1]", true},
+		{"https://172.16.0.1", true},
 	}
 
 	for _, tt := range tests {
@@ -69,4 +77,124 @@ func TestCleanEmail(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNew(t *testing.T) {
+	ctx := context.Background()
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("New() returned nil client")
+	}
+}
+
+func TestParseHTML_WithEmail(t *testing.T) {
+	html := `<html><head><title>Test</title></head><body>
+		<p>Contact me at contact@acmecorp.io or backup@acmecorp.net</p>
+	</body></html>`
+
+	profile := parseHTML([]byte(html), "https://acmecorp.io")
+
+	if profile.Fields["email"] != "contact@acmecorp.io" {
+		t.Errorf("email = %q, want %q", profile.Fields["email"], "contact@acmecorp.io")
+	}
+}
+
+func TestFetch_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	client, _ := New(ctx)
+
+	_, err := client.Fetch(ctx, server.URL)
+	if err == nil {
+		t.Error("Fetch() expected error for 404, got nil")
+	}
+}
+
+func TestFetch_BlockedURL(t *testing.T) {
+	ctx := context.Background()
+	client, _ := New(ctx)
+
+	_, err := client.Fetch(ctx, "http://localhost/secret")
+	if err == nil {
+		t.Error("Fetch() expected error for blocked URL, got nil")
+	}
+}
+
+func TestParseHTML(t *testing.T) {
+	tests := []struct {
+		name     string
+		html     string
+		url      string
+		wantName string
+		wantBio  string
+	}{
+		{
+			name: "full page",
+			html: `<html><head>
+				<title>Test Page</title>
+				<meta name="description" content="A test description">
+			</head><body>
+				<a href="https://github.com/user">GitHub</a>
+				<a href="mailto:user@example.com">Email</a>
+			</body></html>`,
+			url:      "https://example.com",
+			wantName: "Test Page",
+			wantBio:  "A test description",
+		},
+		{
+			name:     "empty page",
+			html:     `<html><head></head><body></body></html>`,
+			url:      "https://example.com",
+			wantName: "",
+			wantBio:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile := parseHTML([]byte(tt.html), tt.url)
+
+			if profile.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", profile.Name, tt.wantName)
+			}
+			if profile.Bio != tt.wantBio {
+				t.Errorf("Bio = %q, want %q", profile.Bio, tt.wantBio)
+			}
+		})
+	}
+}
+
+func TestDedupeLinks(t *testing.T) {
+	links := []string{
+		"https://github.com/user",
+		"https://GITHUB.COM/user/",
+		"https://twitter.com/user",
+		"https://github.com/user",
+	}
+
+	deduped := dedupeLinks(links)
+	if len(deduped) != 2 {
+		t.Errorf("dedupeLinks() returned %d links, want 2", len(deduped))
+	}
+}
+
+func TestWithOptions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with_cache", func(t *testing.T) {
+		client, err := New(ctx, WithHTTPCache(nil))
+		if err != nil {
+			t.Fatalf("New(WithHTTPCache) error = %v", err)
+		}
+		if client == nil {
+			t.Fatal("New(WithHTTPCache) returned nil")
+		}
+	})
 }

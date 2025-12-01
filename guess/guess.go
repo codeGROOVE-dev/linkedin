@@ -401,7 +401,7 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 }
 
 // filterHighestConfidencePerPlatform keeps only the highest confidence profile(s) per platform.
-// If multiple profiles are tied at the highest confidence, all are kept.
+// If multiple profiles are tied at the highest confidence, all are kept (but duplicates by URL are removed).
 func filterHighestConfidencePerPlatform(profiles []*profile.Profile) []*profile.Profile {
 	if len(profiles) == 0 {
 		return profiles
@@ -418,13 +418,19 @@ func filterHighestConfidencePerPlatform(profiles []*profile.Profile) []*profile.
 		}
 	}
 
-	// Keep only profiles at max confidence for their platform
+	// Keep only profiles at max confidence for their platform, deduplicating by normalized URL
 	var result []*profile.Profile
+	seenURLs := make(map[string]bool)
+
 	for platform, platformProfiles := range byPlatform {
 		maxConf := maxConfidence[platform]
 		for _, p := range platformProfiles {
 			if p.Confidence == maxConf {
-				result = append(result, p)
+				normalizedURL := normalizeURL(p.URL)
+				if !seenURLs[normalizedURL] {
+					seenURLs[normalizedURL] = true
+					result = append(result, p)
+				}
 			}
 		}
 	}

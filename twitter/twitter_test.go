@@ -78,6 +78,228 @@ func TestExtractInitialStateNotFound(t *testing.T) {
 	}
 }
 
+func TestParseGraphQLResponse(t *testing.T) {
+	tests := []struct {
+		name         string
+		json         string
+		wantUsername string
+		wantName     string
+		wantBio      string
+		wantLocation string
+		wantErr      bool
+	}{
+		{
+			name: "full profile",
+			json: `{
+				"data": {
+					"user": {
+						"result": {
+							"rest_id": "12345",
+							"core": {
+								"name": "John Doe",
+								"screen_name": "johndoe"
+							},
+							"location": {
+								"location": "San Francisco, CA"
+							},
+							"legacy": {
+								"description": "Software engineer at Big Tech",
+								"entities": {
+									"url": {
+										"urls": [
+											{"expanded_url": "https://johndoe.com", "display_url": "johndoe.com"}
+										]
+									}
+								}
+							}
+						}
+					}
+				}
+			}`,
+			wantUsername: "johndoe",
+			wantName:     "John Doe",
+			wantBio:      "Software engineer at Big Tech",
+			wantLocation: "San Francisco, CA",
+		},
+		{
+			name: "minimal profile",
+			json: `{
+				"data": {
+					"user": {
+						"result": {
+							"rest_id": "67890",
+							"core": {
+								"name": "Jane",
+								"screen_name": "jane"
+							},
+							"location": {},
+							"legacy": {}
+						}
+					}
+				}
+			}`,
+			wantUsername: "jane",
+			wantName:     "Jane",
+		},
+		{
+			name: "user not found",
+			json: `{
+				"data": {
+					"user": {
+						"result": {}
+					}
+				}
+			}`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid json",
+			json:    `{invalid}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, err := parseGraphQLResponse([]byte(tt.json), "https://x.com/test", "test")
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("parseGraphQLResponse() expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("parseGraphQLResponse() error = %v", err)
+			}
+
+			if profile.Username != tt.wantUsername {
+				t.Errorf("Username = %q, want %q", profile.Username, tt.wantUsername)
+			}
+			if profile.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", profile.Name, tt.wantName)
+			}
+			if tt.wantBio != "" && profile.Bio != tt.wantBio {
+				t.Errorf("Bio = %q, want %q", profile.Bio, tt.wantBio)
+			}
+			if tt.wantLocation != "" && profile.Location != tt.wantLocation {
+				t.Errorf("Location = %q, want %q", profile.Location, tt.wantLocation)
+			}
+		})
+	}
+}
+
+func TestFilterSamePlatformLinks(t *testing.T) {
+	links := []string{
+		"https://twitter.com/other",
+		"https://x.com/someone",
+		"https://github.com/user",
+		"https://linkedin.com/in/user",
+	}
+
+	filtered := filterSamePlatformLinks(links)
+
+	// Should filter out the twitter.com and x.com links
+	if len(filtered) != 2 {
+		t.Errorf("filterSamePlatformLinks() returned %d links, want 2", len(filtered))
+	}
+
+	for _, link := range filtered {
+		if Match(link) {
+			t.Errorf("filterSamePlatformLinks() should have filtered %q", link)
+		}
+	}
+}
+
+func TestGetGraphQLFeatures(t *testing.T) {
+	features := getGraphQLFeatures()
+	if features == nil {
+		t.Fatal("getGraphQLFeatures() returned nil")
+	}
+	if len(features) == 0 {
+		t.Error("getGraphQLFeatures() returned empty map")
+	}
+}
+
+func TestExtractWebsiteFromUser(t *testing.T) {
+	tests := []struct {
+		name string
+		user map[string]any
+		want string
+	}{
+		{
+			name: "expanded url",
+			user: map[string]any{
+				"entities": map[string]any{
+					"url": map[string]any{
+						"urls": []any{
+							map[string]any{
+								"expanded_url": "https://example.com/full",
+								"display_url":  "example.com",
+							},
+						},
+					},
+				},
+			},
+			want: "https://example.com/full",
+		},
+		{
+			name: "display url fallback",
+			user: map[string]any{
+				"entities": map[string]any{
+					"url": map[string]any{
+						"urls": []any{
+							map[string]any{
+								"display_url": "example.com",
+							},
+						},
+					},
+				},
+			},
+			want: "example.com",
+		},
+		{
+			name: "no entities",
+			user: map[string]any{},
+			want: "",
+		},
+		{
+			name: "empty urls",
+			user: map[string]any{
+				"entities": map[string]any{
+					"url": map[string]any{
+						"urls": []any{},
+					},
+				},
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractWebsiteFromUser(tt.user)
+			if got != tt.want {
+				t.Errorf("extractWebsiteFromUser() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetKeys(t *testing.T) {
+	m := map[string]any{
+		"key1": "value1",
+		"key2": "value2",
+		"key3": "value3",
+	}
+
+	keys := getKeys(m)
+	if len(keys) != 3 {
+		t.Errorf("getKeys() returned %d keys, want 3", len(keys))
+	}
+}
+
 func TestIsValidUsername(t *testing.T) {
 	tests := []struct {
 		name     string
