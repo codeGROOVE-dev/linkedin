@@ -129,12 +129,15 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = &http.Client{
 		Transport: &mockTransport{mockURL: server.URL},
 	}
 
-	_, err := client.Fetch(ctx, "https://bsky.app/profile/nonexistent.bsky.social")
+	_, err = client.Fetch(ctx, "https://bsky.app/profile/nonexistent.bsky.social")
 	if err == nil {
 		t.Error("Fetch() expected error for 404, got nil")
 	}
@@ -142,9 +145,12 @@ func TestFetch_NotFound(t *testing.T) {
 
 func TestFetch_InvalidHandle(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://example.com/invalid")
+	_, err = client.Fetch(ctx, "https://example.com/invalid")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}

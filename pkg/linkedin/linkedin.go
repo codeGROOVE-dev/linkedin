@@ -23,6 +23,10 @@ import (
 
 const platform = "linkedin"
 
+// linkedInBaseURL is the parsed base URL for LinkedIn.
+// This is a compile-time constant that cannot fail to parse.
+var linkedInBaseURL, _ = url.Parse("https://www.linkedin.com") //nolint:errcheck // constant URL cannot fail
+
 // Match returns true if the URL is a LinkedIn profile URL.
 func Match(urlStr string) bool {
 	return strings.Contains(strings.ToLower(urlStr), "linkedin.com/in/")
@@ -313,8 +317,7 @@ func extractLocationFromGraphQLResponse(body []byte) string {
 // ensureSessionCookies makes a request to LinkedIn to get session cookies (JSESSIONID).
 func (c *Client) ensureSessionCookies(ctx context.Context) error {
 	// Check if we already have JSESSIONID
-	u, _ := url.Parse("https://www.linkedin.com")
-	for _, cookie := range c.httpClient.Jar.Cookies(u) {
+	for _, cookie := range c.httpClient.Jar.Cookies(linkedInBaseURL) {
 		if cookie.Name == "JSESSIONID" {
 			c.logger.DebugContext(ctx, "JSESSIONID already present")
 			return nil
@@ -337,7 +340,7 @@ func (c *Client) ensureSessionCookies(ctx context.Context) error {
 	}
 
 	// Check if we got JSESSIONID
-	for _, cookie := range c.httpClient.Jar.Cookies(u) {
+	for _, cookie := range c.httpClient.Jar.Cookies(linkedInBaseURL) {
 		if cookie.Name == "JSESSIONID" {
 			c.logger.DebugContext(ctx, "got JSESSIONID from response")
 			return nil
@@ -360,8 +363,7 @@ func setVoyagerHeaders(req *http.Request, client *http.Client, logger *slog.Logg
 
 	// Extract CSRF token from JSESSIONID cookie
 	if client.Jar != nil {
-		u, _ := url.Parse("https://www.linkedin.com")
-		cookies := client.Jar.Cookies(u)
+		cookies := client.Jar.Cookies(linkedInBaseURL)
 		logger.Debug("voyager api cookies available", "count", len(cookies))
 		for _, cookie := range cookies {
 			if cookie.Name == "JSESSIONID" {

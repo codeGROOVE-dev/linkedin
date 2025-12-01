@@ -111,38 +111,38 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	c.logger.InfoContext(ctx, "fetching github profile", "url", urlStr, "username", username)
 
 	// Fetch API data
-	p, err := c.fetchAPI(ctx, urlStr, username)
+	prof, err := c.fetchAPI(ctx, urlStr, username)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch HTML to extract rel="me" links, README, and organizations
 	htmlContent, htmlLinks := c.fetchHTML(ctx, urlStr)
-	p.SocialLinks = append(p.SocialLinks, htmlLinks...)
+	prof.SocialLinks = append(prof.SocialLinks, htmlLinks...)
 
 	// Extract README and organizations from HTML if available
 	if htmlContent != "" {
 		// Extract organizations
 		orgs := extractOrganizations(htmlContent)
 		if len(orgs) > 0 {
-			p.Fields["organizations"] = strings.Join(orgs, ", ")
+			prof.Fields["organizations"] = strings.Join(orgs, ", ")
 		}
 
 		// Extract README
 		readme := extractREADME(htmlContent)
 		if readme != "" {
-			p.Unstructured = readme
+			prof.Unstructured = readme
 			// Extract social links from README
 			readmeLinks := htmlutil.SocialLinks(readme)
-			p.SocialLinks = append(p.SocialLinks, readmeLinks...)
+			prof.SocialLinks = append(prof.SocialLinks, readmeLinks...)
 		}
 	}
 
 	// Deduplicate and filter out same-platform links (GitHub to GitHub)
-	p.SocialLinks = dedupeLinks(p.SocialLinks)
-	p.SocialLinks = filterSamePlatformLinks(p.SocialLinks)
+	prof.SocialLinks = dedupeLinks(prof.SocialLinks)
+	prof.SocialLinks = filterSamePlatformLinks(prof.SocialLinks)
 
-	return p, nil
+	return prof, nil
 }
 
 func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
@@ -314,7 +314,7 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 		return nil, err
 	}
 
-	p := &profile.Profile{
+	prof := &profile.Profile{
 		Platform:      platform,
 		URL:           urlStr,
 		Authenticated: false,
@@ -333,7 +333,7 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 		// Check for mailto: links first
 		if strings.HasPrefix(blogLower, "mailto:") {
 			email := strings.TrimPrefix(blogLower, "mailto:")
-			p.Fields["email"] = email
+			prof.Fields["email"] = email
 		} else {
 			// GitHub sometimes stores URLs without protocol
 			website := blog
@@ -343,56 +343,56 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 
 			// Check if this is actually an email address with http(s):// prefix
 			if email, isEmail := htmlutil.ExtractEmailFromURL(website); isEmail {
-				p.Fields["email"] = email
+				prof.Fields["email"] = email
 			} else {
-				p.Website = website
-				p.Fields["website"] = website
-				// Don't add to SocialLinks - it's already in p.Website which is followed by recursive mode
+				prof.Website = website
+				prof.Fields["website"] = website
+				// Don't add to SocialLinks - it's already in prof.Website which is followed by recursive mode
 			}
 		}
 	}
 
 	// Add email
 	if ghUser.Email != "" {
-		p.Fields["email"] = ghUser.Email
+		prof.Fields["email"] = ghUser.Email
 	}
 
 	// Add company
 	if ghUser.Company != "" {
 		// Remove @ prefix if present
 		company := strings.TrimPrefix(ghUser.Company, "@")
-		p.Fields["company"] = company
+		prof.Fields["company"] = company
 	}
 
 	// Add Twitter username
 	if ghUser.TwitterUser != "" {
 		twitterURL := "https://twitter.com/" + ghUser.TwitterUser
-		p.Fields["twitter"] = twitterURL
-		p.SocialLinks = append(p.SocialLinks, twitterURL)
+		prof.Fields["twitter"] = twitterURL
+		prof.SocialLinks = append(prof.SocialLinks, twitterURL)
 	}
 
 	// Add stats
 	if ghUser.PublicRepos > 0 {
-		p.Fields["public_repos"] = strconv.Itoa(ghUser.PublicRepos)
+		prof.Fields["public_repos"] = strconv.Itoa(ghUser.PublicRepos)
 	}
 	if ghUser.Followers > 0 {
-		p.Fields["followers"] = strconv.Itoa(ghUser.Followers)
+		prof.Fields["followers"] = strconv.Itoa(ghUser.Followers)
 	}
 	if ghUser.Following > 0 {
-		p.Fields["following"] = strconv.Itoa(ghUser.Following)
+		prof.Fields["following"] = strconv.Itoa(ghUser.Following)
 	}
 
 	// Add avatar URL
 	if ghUser.AvatarURL != "" {
-		p.Fields["avatar_url"] = ghUser.AvatarURL
+		prof.Fields["avatar_url"] = ghUser.AvatarURL
 	}
 
 	// Add account type
 	if ghUser.Type != "" {
-		p.Fields["type"] = ghUser.Type
+		prof.Fields["type"] = ghUser.Type
 	}
 
-	return p, nil
+	return prof, nil
 }
 
 func extractUsername(urlStr string) string {

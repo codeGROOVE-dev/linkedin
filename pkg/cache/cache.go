@@ -55,7 +55,14 @@ func FetchURL(ctx context.Context, cache HTTPCache, client *http.Client, req *ht
 // FetchURLWithValidator fetches a URL with caching support and optional response validation.
 // If validator is provided and returns false, the response is NOT cached but still returned.
 // This is useful for avoiding caching of incomplete/shell responses.
-func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Client, req *http.Request, logger *slog.Logger, validator ResponseValidator) ([]byte, error) {
+func FetchURLWithValidator(
+	ctx context.Context,
+	cache HTTPCache,
+	client *http.Client,
+	req *http.Request,
+	logger *slog.Logger,
+	validator ResponseValidator,
+) ([]byte, error) {
 	// Build cache key that includes auth state to avoid mixing authenticated/unauthenticated responses
 	cacheKey := req.URL.String()
 	if client.Jar != nil {
@@ -75,7 +82,7 @@ func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Cl
 			cache.RecordHit()
 			// Check if this is a cached error (format: "ERROR:status_code")
 			if s := string(data); strings.HasPrefix(s, "ERROR:") {
-				code, _ := strconv.Atoi(strings.TrimPrefix(s, "ERROR:"))
+				code, _ := strconv.Atoi(strings.TrimPrefix(s, "ERROR:")) //nolint:errcheck // parse error defaults to 0 which is acceptable
 				if logger != nil {
 					logger.Debug("cache hit (error)", "key", cacheKey, "status", code)
 				}
@@ -103,9 +110,11 @@ func FetchURLWithValidator(ctx context.Context, cache HTTPCache, client *http.Cl
 	if resp.StatusCode != http.StatusOK {
 		if cache != nil {
 			errData := []byte(fmt.Sprintf("ERROR:%d", resp.StatusCode))
-			_ = cache.SetAsyncWithTTL(ctx, cacheKey, errData, "", nil, errorTTL) //nolint:errcheck
+			_ = cache.SetAsyncWithTTL(ctx, cacheKey, errData, "", nil, errorTTL) //nolint:errcheck // async write errors are non-fatal
 			if logger != nil {
-				logger.Info("cache store", "url", req.URL.String(), "key", cacheKey, "status", resp.StatusCode, "bytes", len(errData), "ttl", errorTTL)
+				logger.Info("cache store",
+					"url", req.URL.String(), "key", cacheKey,
+					"status", resp.StatusCode, "bytes", len(errData), "ttl", errorTTL)
 			}
 		}
 		return nil, &HTTPError{StatusCode: resp.StatusCode, URL: req.URL.String()}

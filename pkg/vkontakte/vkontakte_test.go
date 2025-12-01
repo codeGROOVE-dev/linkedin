@@ -132,12 +132,15 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = &http.Client{
 		Transport: &mockTransport{mockURL: server.URL},
 	}
 
-	_, err := client.Fetch(ctx, "https://vk.com/nonexistent")
+	_, err = client.Fetch(ctx, "https://vk.com/nonexistent")
 	if err == nil {
 		t.Error("Fetch() expected error for 404, got nil")
 	}
@@ -163,15 +166,15 @@ func TestParseProfile(t *testing.T) {
 			wantBio:  "Developer and designer",
 		},
 		{
-			name: "bot detection triggered",
-			html: `<html><body>You are making too many requests</body></html>`,
-			url:  "https://vk.com/user",
+			name:    "bot detection triggered",
+			html:    `<html><body>You are making too many requests</body></html>`,
+			url:     "https://vk.com/user",
 			wantErr: true,
 		},
 		{
-			name: "Russian bot detection",
-			html: `<html><body>У вас большие запросы</body></html>`,
-			url:  "https://vk.com/user",
+			name:    "Russian bot detection",
+			html:    `<html><body>У вас большие запросы</body></html>`,
+			url:     "https://vk.com/user",
 			wantErr: true,
 		},
 	}
@@ -217,7 +220,7 @@ func TestWithOptions(t *testing.T) {
 	t.Run("with_browser_cookies_option", func(t *testing.T) {
 		// Verify WithBrowserCookies option compiles and can be passed
 		// We don't actually call New() with it to avoid slow browser access
-		var opt Option = WithBrowserCookies()
+		opt := WithBrowserCookies()
 		if opt == nil {
 			t.Fatal("WithBrowserCookies() returned nil")
 		}

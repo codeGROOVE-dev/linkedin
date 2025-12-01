@@ -135,63 +135,63 @@ func TestIsValidUsernameForPlatform(t *testing.T) {
 		// LinkedIn: 3-100 chars, alphanumeric and hyphens only
 		{"tpope", "linkedin", true},
 		{"tim-pope", "linkedin", true},
-		{"ab", "linkedin", false},           // too short
-		{"tpo.pe", "linkedin", false},       // has dot
-		{"tim_pope", "linkedin", false},     // has underscore
-		{"-tpope", "linkedin", false},       // starts with hyphen
-		{"tpope-", "linkedin", false},       // ends with hyphen
-		{"tim--pope", "linkedin", false},    // consecutive hyphens
+		{"ab", "linkedin", false},        // too short
+		{"tpo.pe", "linkedin", false},    // has dot
+		{"tim_pope", "linkedin", false},  // has underscore
+		{"-tpope", "linkedin", false},    // starts with hyphen
+		{"tpope-", "linkedin", false},    // ends with hyphen
+		{"tim--pope", "linkedin", false}, // consecutive hyphens
 
 		// Twitter: 4-15 chars, alphanumeric and underscores
 		{"tpope", "twitter", true},
 		{"tim_pope", "twitter", true},
-		{"abc", "twitter", false},           // too short (min 4)
-		{"tpo.pe", "twitter", false},        // has dot
-		{"tim-pope", "twitter", false},      // has hyphen
+		{"abc", "twitter", false},                 // too short (min 4)
+		{"tpo.pe", "twitter", false},              // has dot
+		{"tim-pope", "twitter", false},            // has hyphen
 		{"verylongusername123", "twitter", false}, // too long (max 15)
 
 		// GitHub: 1-39 chars, alphanumeric and hyphens
 		{"tpope", "github", true},
 		{"tim-pope", "github", true},
-		{"a", "github", true},               // single char OK
-		{"-tpope", "github", false},         // starts with hyphen
-		{"tim--pope", "github", false},      // consecutive hyphens
-		{"tim_pope", "github", false},       // has underscore
+		{"a", "github", true},          // single char OK
+		{"-tpope", "github", false},    // starts with hyphen
+		{"tim--pope", "github", false}, // consecutive hyphens
+		{"tim_pope", "github", false},  // has underscore
 
 		// Instagram: 1-30 chars, alphanumeric, underscores, periods
 		{"tpope", "instagram", true},
 		{"tim.pope", "instagram", true},
 		{"tim_pope", "instagram", true},
-		{".tpope", "instagram", false},      // starts with period
-		{"tpope.", "instagram", false},      // ends with period
-		{"tim..pope", "instagram", false},   // consecutive periods
-		{"tim-pope", "instagram", false},    // has hyphen
+		{".tpope", "instagram", false},    // starts with period
+		{"tpope.", "instagram", false},    // ends with period
+		{"tim..pope", "instagram", false}, // consecutive periods
+		{"tim-pope", "instagram", false},  // has hyphen
 
 		// Reddit: 3-20 chars, alphanumeric, underscores, hyphens
 		{"tpope", "reddit", true},
 		{"tim_pope", "reddit", true},
 		{"tim-pope", "reddit", true},
-		{"ab", "reddit", false},             // too short
-		{"tpo.pe", "reddit", false},         // has dot
+		{"ab", "reddit", false},     // too short
+		{"tpo.pe", "reddit", false}, // has dot
 
 		// Mastodon: alphanumeric and underscores only
 		{"tpope", "mastodon", true},
 		{"tim_pope", "mastodon", true},
-		{"tpo.pe", "mastodon", false},       // has dot
-		{"tim-pope", "mastodon", false},     // has hyphen
+		{"tpo.pe", "mastodon", false},   // has dot
+		{"tim-pope", "mastodon", false}, // has hyphen
 
 		// TikTok: 2-24 chars, alphanumeric, underscores, periods
 		{"tpope", "tiktok", true},
 		{"tpo.pe", "tiktok", true},
-		{"a", "tiktok", false},              // too short
+		{"a", "tiktok", false}, // too short
 
 		// Bilibili: numeric IDs only
 		{"123456", "bilibili", true},
-		{"tpope", "bilibili", false},        // not numeric
+		{"tpope", "bilibili", false}, // not numeric
 
 		// VK: 5-32 chars
 		{"tpope", "vkontakte", true},
-		{"abcd", "vkontakte", false},        // too short (min 5)
+		{"abcd", "vkontakte", false}, // too short (min 5)
 	}
 
 	for _, tt := range tests {

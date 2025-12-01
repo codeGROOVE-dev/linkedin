@@ -91,7 +91,7 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	return parseProfile(string(body), normalizedURL, userID)
 }
 
-func parseProfile(html, url, userID string) (*profile.Profile, error) { //nolint:unparam // error return part of interface pattern
+func parseProfile(html, url, userID string) (*profile.Profile, error) {
 	prof := &profile.Profile{
 		Platform: platform,
 		URL:      url,

@@ -139,12 +139,15 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = &http.Client{
 		Transport: &mockTransport{mockURL: server.URL},
 	}
 
-	_, err := client.Fetch(ctx, "https://habr.com/en/users/nonexistent")
+	_, err = client.Fetch(ctx, "https://habr.com/en/users/nonexistent")
 	if err == nil {
 		t.Error("Fetch() expected error for 404, got nil")
 	}
@@ -152,9 +155,12 @@ func TestFetch_NotFound(t *testing.T) {
 
 func TestFetch_InvalidUsername(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://habr.com/articles/")
+	_, err = client.Fetch(ctx, "https://habr.com/articles/")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}

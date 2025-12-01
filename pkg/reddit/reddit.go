@@ -91,7 +91,7 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	return parseProfile(string(body), normalizedURL, username)
 }
 
-func parseProfile(html, url, username string) (*profile.Profile, error) { //nolint:unparam // error return part of interface pattern
+func parseProfile(html, url, username string) (*profile.Profile, error) {
 	prof := &profile.Profile{
 		Platform: platform,
 		URL:      url,
@@ -236,29 +236,31 @@ func extractCommentSamples(html string, limit int) []string {
 
 	var samples []string
 	for _, match := range matches {
-		if len(match) > 1 && len(samples) < limit {
-			// Extract text from HTML, removing tags
-			text := stripHTML(match[1])
-			text = strings.TrimSpace(text)
-
-			// Skip very short comments
-			if len(text) < 20 {
-				continue
-			}
-
-			// Skip generic messages
-			if strings.Contains(text, "archived post") ||
-				strings.Contains(text, "automatically archived") {
-				continue
-			}
-
-			// Limit length of each sample to ~200 chars
-			if len(text) > 200 {
-				text = text[:200] + "..."
-			}
-
-			samples = append(samples, text)
+		if len(match) <= 1 || len(samples) >= limit {
+			continue
 		}
+
+		// Extract text from HTML, removing tags
+		text := stripHTML(match[1])
+		text = strings.TrimSpace(text)
+
+		// Skip very short comments
+		if len(text) < 20 {
+			continue
+		}
+
+		// Skip generic messages
+		if strings.Contains(text, "archived post") ||
+			strings.Contains(text, "automatically archived") {
+			continue
+		}
+
+		// Limit length of each sample to ~200 chars
+		if len(text) > 200 {
+			text = text[:200] + "..."
+		}
+
+		samples = append(samples, text)
 	}
 
 	return samples

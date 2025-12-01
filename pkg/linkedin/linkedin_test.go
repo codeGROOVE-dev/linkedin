@@ -2,7 +2,6 @@ package linkedin
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"testing"
 )
@@ -67,7 +66,7 @@ func TestParseCompanyFromHeadline(t *testing.T) {
 		{"Software Engineer at Google", "Google"},
 		{"CEO @ Startup", "Startup"},
 		{"Engineering @Akuity", "Akuity"},
-		{"Engineer, Acme Corp", ""},  // comma-separated formats are too ambiguous (e.g., "P2P, Rust")
+		{"Engineer, Acme Corp", ""}, // comma-separated formats are too ambiguous (e.g., "P2P, Rust")
 		{"Senior Developer at Meta, Inc.", "Meta"},
 		{"Just a person", ""},
 	}
@@ -156,7 +155,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("with_logger", func(t *testing.T) {
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+		logger := slog.New(slog.DiscardHandler)
 		// LinkedIn still requires cookies even with logger
 		dummyCookies := map[string]string{
 			"LINKEDIN_LI_AT":      "dummy",

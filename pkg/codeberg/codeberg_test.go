@@ -17,13 +17,13 @@ func TestMatch(t *testing.T) {
 		{"https://codeberg.org/timbran", true},
 		{"https://codeberg.org/stephen-fox", true},
 		{"https://CODEBERG.ORG/johwhj", true},
-		{"https://codeberg.org/johwhj/repo", false},       // repo path, not profile
-		{"https://codeberg.org/explore", false},           // system path
-		{"https://codeberg.org/api", false},               // system path
-		{"https://codeberg.org/", false},                  // homepage
-		{"https://github.com/johwhj", false},              // wrong platform
-		{"https://example.com", false},                    // unrelated
-		{"https://codeberg.org/codeberg", false},          // Codeberg org itself
+		{"https://codeberg.org/johwhj/repo", false}, // repo path, not profile
+		{"https://codeberg.org/explore", false},     // system path
+		{"https://codeberg.org/api", false},         // system path
+		{"https://codeberg.org/", false},            // homepage
+		{"https://github.com/johwhj", false},        // wrong platform
+		{"https://example.com", false},              // unrelated
+		{"https://codeberg.org/codeberg", false},    // Codeberg org itself
 		{"https://codeberg.org/johwhj?tab=repositories", true},
 	}
 
@@ -142,10 +142,13 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = server.Client()
 
-	_, err := client.Fetch(ctx, server.URL+"/nonexistent")
+	_, err = client.Fetch(ctx, server.URL+"/nonexistent")
 	if err == nil {
 		t.Error("Fetch() expected error for 404, got nil")
 	}
@@ -153,9 +156,12 @@ func TestFetch_NotFound(t *testing.T) {
 
 func TestFetch_InvalidUsername(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://example.com/nocodeberg")
+	_, err = client.Fetch(ctx, "https://example.com/nocodeberg")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}

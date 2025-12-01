@@ -27,12 +27,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// getTestCache creates a persistent HTTP cache for integration tests with 24-hour TTL
+// getTestCache creates a persistent HTTP cache for integration tests with 24-hour TTL.
+// We use os.TempDir() instead of t.TempDir() because we need the cache to persist
+// across multiple test runs to avoid hammering external APIs.
 func getTestCache(t *testing.T) cache.HTTPCache {
 	t.Helper()
 
-	cacheDir := filepath.Join(os.TempDir(), "sociopath-test-cache")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	cacheDir := filepath.Join(os.TempDir(), "sociopath-test-cache") //nolint:usetesting // cache must persist across runs
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatalf("failed to create cache directory: %v", err)
 	}
 
@@ -63,7 +65,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 		authOnly bool
 		cmpOpts  []cmp.Option // Optional custom comparison options for this test
 	}{
-// Generated tests - DO NOT manually edit this section
+		// Generated tests - DO NOT manually edit this section
 
 		{
 			name: "GitHub/tstromberg",

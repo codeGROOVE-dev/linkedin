@@ -146,9 +146,12 @@ func TestFilterSamePlatformLinks(t *testing.T) {
 
 func TestFetch_InvalidUsername(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://tiktok.com/video/123")
+	_, err = client.Fetch(ctx, "https://tiktok.com/video/123")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}
@@ -170,7 +173,7 @@ func TestWithOptions(t *testing.T) {
 	t.Run("with_browser_cookies_option", func(t *testing.T) {
 		// Verify WithBrowserCookies option compiles and can be passed
 		// We don't actually call New() with it to avoid slow browser access
-		var opt Option = WithBrowserCookies()
+		opt := WithBrowserCookies()
 		if opt == nil {
 			t.Fatal("WithBrowserCookies() returned nil")
 		}

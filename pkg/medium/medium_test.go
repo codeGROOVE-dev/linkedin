@@ -137,12 +137,15 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = &http.Client{
 		Transport: &mockTransport{mockURL: server.URL},
 	}
 
-	_, err := client.Fetch(ctx, "https://medium.com/@nonexistent")
+	_, err = client.Fetch(ctx, "https://medium.com/@nonexistent")
 	if err == nil {
 		t.Error("Fetch() expected error for not found page, got nil")
 	}
@@ -150,9 +153,12 @@ func TestFetch_NotFound(t *testing.T) {
 
 func TestFetch_InvalidUsername(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://medium.com/publication")
+	_, err = client.Fetch(ctx, "https://medium.com/publication")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}
@@ -160,12 +166,12 @@ func TestFetch_InvalidUsername(t *testing.T) {
 
 func TestParseProfile(t *testing.T) {
 	tests := []struct {
-		name        string
-		html        string
-		username    string
-		wantName    string
-		wantBio     string
-		wantErr     bool
+		name     string
+		html     string
+		username string
+		wantName string
+		wantBio  string
+		wantErr  bool
 	}{
 		{
 			name: "full profile",

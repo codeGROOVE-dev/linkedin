@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer func() { _ = cache.Close() }() //nolint:errcheck // error ignored intentionally
+	defer func() { _ = cache.Close() }()
 
 	if cache.cache == nil {
 		t.Error("cache.cache is nil")
@@ -32,7 +32,7 @@ func TestGetSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer func() { _ = cache.Close() }() //nolint:errcheck // error ignored intentionally
+	defer func() { _ = cache.Close() }()
 
 	ctx := context.Background()
 	url := "https://example.com/test"
@@ -104,7 +104,7 @@ func TestCacheDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	defer func() { _ = cache.Close() }() //nolint:errcheck // error ignored intentionally //nolint:errcheck // error ignored intentionally
+	defer func() { _ = cache.Close() }()
 
 	// Check that cache directory was created
 	cacheDir, err := os.UserCacheDir()

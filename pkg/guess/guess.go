@@ -62,6 +62,8 @@ var platformPatterns = []struct {
 
 // isValidUsernameForPlatform checks if a username meets the platform's requirements.
 // Each platform has different rules for valid usernames.
+//
+//nolint:gocognit,maintidx,staticcheck // platform-specific validation; QF1001 De Morgan reduces readability
 func isValidUsernameForPlatform(username, platform string) bool {
 	switch platform {
 	case "linkedin":
@@ -169,8 +171,8 @@ func isValidUsernameForPlatform(username, platform string) bool {
 		}
 		return true
 
-	case "medium":
-		// Medium: alphanumeric and underscores, typically 1-30 chars
+	case "medium", "mastodon", "devto", "habr":
+		// These platforms share similar rules: 1-30 chars, alphanumeric and underscores
 		if len(username) < 1 || len(username) > 30 {
 			return false
 		}
@@ -197,42 +199,6 @@ func isValidUsernameForPlatform(username, platform string) bool {
 		}
 		return true
 
-	case "mastodon":
-		// Mastodon: 1-30 chars typically, alphanumeric and underscores
-		if len(username) < 1 || len(username) > 30 {
-			return false
-		}
-		for _, c := range username {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
-				return false
-			}
-		}
-		return true
-
-	case "devto":
-		// Dev.to: alphanumeric and underscores
-		if len(username) < 1 || len(username) > 30 {
-			return false
-		}
-		for _, c := range username {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
-				return false
-			}
-		}
-		return true
-
-	case "habr":
-		// Habr: alphanumeric and underscores
-		if len(username) < 1 || len(username) > 30 {
-			return false
-		}
-		for _, c := range username {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
-				return false
-			}
-		}
-		return true
-
 	case "vkontakte":
 		// VK: alphanumeric and underscores, 5-32 chars
 		if len(username) < 5 || len(username) > 32 {
@@ -252,7 +218,7 @@ func isValidUsernameForPlatform(username, platform string) bool {
 				return false
 			}
 		}
-		return len(username) > 0
+		return username != ""
 
 	case "weibo", "zhihu":
 		// These platforms use various ID formats, be permissive
@@ -266,6 +232,8 @@ func isValidUsernameForPlatform(username, platform string) bool {
 
 // Related discovers related profiles based on known profiles.
 // It extracts usernames and tries to find matching profiles on other platforms.
+//
+//nolint:gocognit,maintidx,nestif,revive // multi-stage profile discovery with concurrent fetching is inherently complex
 func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profile.Profile {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -422,7 +390,9 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 					}
 
 					// Score against ALL known profiles (original + first round guesses)
-					allKnown := append(known, guessed...)
+					allKnown := make([]*profile.Profile, 0, len(known)+len(guessed))
+					allKnown = append(allKnown, known...)
+					allKnown = append(allKnown, guessed...)
 					confidence, matches := scoreMatch(p, allKnown, candidateURL{
 						url:       url,
 						username:  p.Username,
@@ -519,7 +489,9 @@ func Related(ctx context.Context, known []*profile.Profile, cfg Config) []*profi
 					}
 
 					// Score against ALL known profiles (original + first round guesses)
-					allKnown := append(known, guessed...)
+					allKnown := make([]*profile.Profile, 0, len(known)+len(guessed))
+					allKnown = append(allKnown, known...)
+					allKnown = append(allKnown, guessed...)
 					confidence, matches := scoreMatch(p, allKnown, candidate)
 					if confidence < 0.3 {
 						cfg.Logger.Info("second round candidate low confidence, skipping",
@@ -841,7 +813,14 @@ func isNumeric(s string) bool {
 // maxCandidatesPerPlatform limits how many URLs we try per platform to avoid excessive requests.
 const maxCandidatesPerPlatform = 3
 
-func generateCandidates(usernames []string, names []string, knownURLs map[string]bool, knownPlatforms map[string]bool, vouchedPlatforms map[string]bool) []candidateURL {
+//nolint:gocognit // candidate generation with platform-specific rules is inherently complex
+func generateCandidates(
+	usernames []string,
+	names []string,
+	knownURLs map[string]bool,
+	knownPlatforms map[string]bool,
+	vouchedPlatforms map[string]bool,
+) []candidateURL {
 	// Track candidates per platform, prioritizing higher-quality guesses
 	platformCandidates := make(map[string][]candidateURL)
 
@@ -1000,6 +979,8 @@ func normalizeURL(url string) string {
 
 // scoreMatch calculates confidence that a guessed profile belongs to the same person.
 // Returns confidence (0.0-1.0) and list of matching criteria.
+//
+//nolint:gocognit,maintidx,revive // multi-signal confidence scoring with extensive heuristics is inherently complex
 func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate candidateURL) (confidence float64, matchReasons []string) {
 	var score float64
 	var matches []string
@@ -1044,45 +1025,45 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 	var hasWebsiteMatch, hasEmployerMatch, hasOrgMatch, hasInterestMatch bool
 
 	// Check against each known profile for additional signals
-	for _, k := range known {
+	for _, kp := range known {
 		// Check for links between profiles (highest signal)
-		if hasLinkTo(guessed, k) || hasLinkTo(k, guessed) {
+		if hasLinkTo(guessed, kp) || hasLinkTo(kp, guessed) {
 			if !hasLink {
 				hasLink = true
-				matches = append(matches, "linked:"+k.Platform)
+				matches = append(matches, "linked:"+kp.Platform)
 			}
 		}
 
 		// Check name similarity (high signal) - track best score
-		if nameScore := scoreName(guessed.Name, k.Name); nameScore > bestNameScore {
+		if nameScore := scoreName(guessed.Name, kp.Name); nameScore > bestNameScore {
 			if bestNameScore == 0 {
-				matches = append(matches, "name:"+k.Platform)
+				matches = append(matches, "name:"+kp.Platform)
 			}
 			bestNameScore = nameScore
 		}
 
 		// Check location match (medium signal) - track best score
-		if locScore := scoreLocation(guessed.Location, k.Location); locScore > bestLocScore {
+		if locScore := scoreLocation(guessed.Location, kp.Location); locScore > bestLocScore {
 			if bestLocScore == 0 {
-				matches = append(matches, "location:"+k.Platform)
+				matches = append(matches, "location:"+kp.Platform)
 			}
 			bestLocScore = locScore
 		}
 
 		// Check bio word overlap (lower signal) - track best score
-		if bioScore := scoreBioOverlap(guessed.Bio, k.Bio); bioScore > bestBioScore {
+		if bioScore := scoreBioOverlap(guessed.Bio, kp.Bio); bioScore > bestBioScore {
 			if bestBioScore == 0 {
-				matches = append(matches, "bio:"+k.Platform)
+				matches = append(matches, "bio:"+kp.Platform)
 			}
 			bestBioScore = bioScore
 		}
 
 		// Check website match (high signal)
-		if guessed.Website != "" && k.Website != "" {
-			if normalizeURL(guessed.Website) == normalizeURL(k.Website) {
+		if guessed.Website != "" && kp.Website != "" {
+			if normalizeURL(guessed.Website) == normalizeURL(kp.Website) {
 				if !hasWebsiteMatch {
 					hasWebsiteMatch = true
-					matches = append(matches, "website:"+k.Platform)
+					matches = append(matches, "website:"+kp.Platform)
 				}
 			}
 		}
@@ -1102,10 +1083,10 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 			}
 
 			// Extract employer from known profile
-			if k.Fields != nil {
-				if emp := k.Fields["employer"]; emp != "" {
+			if kp.Fields != nil {
+				if emp := kp.Fields["employer"]; emp != "" {
 					knownEmployer = strings.ToLower(strings.TrimSpace(emp))
-				} else if comp := k.Fields["company"]; comp != "" {
+				} else if comp := kp.Fields["company"]; comp != "" {
 					knownEmployer = strings.ToLower(strings.TrimSpace(comp))
 				}
 			}
@@ -1123,7 +1104,7 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 					strings.Contains(guessedNoSpace, knownNoSpace) ||
 					strings.Contains(knownNoSpace, guessedNoSpace) {
 					hasEmployerMatch = true
-					matches = append(matches, "employer:"+k.Platform)
+					matches = append(matches, "employer:"+kp.Platform)
 				}
 			}
 		}
@@ -1132,19 +1113,19 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 		if !hasOrgMatch {
 			// Get organizations from either profile (usually GitHub)
 			guessedOrgs := extractOrganizationList(guessed.Fields)
-			knownOrgs := extractOrganizationList(k.Fields)
+			knownOrgs := extractOrganizationList(kp.Fields)
 
 			// Check if any organization appears in the other profile's bio, employer, or unstructured text
 			if len(guessedOrgs) > 0 || len(knownOrgs) > 0 {
 				// Check guessed orgs against known bio/employer/unstructured
-				if len(guessedOrgs) > 0 && scoreOrganizationMatch(guessedOrgs, k.Bio, getEmployer(k.Fields), k.Unstructured) {
+				if len(guessedOrgs) > 0 && scoreOrganizationMatch(guessedOrgs, kp.Bio, getEmployer(kp.Fields), kp.Unstructured) {
 					hasOrgMatch = true
-					matches = append(matches, "organization:"+k.Platform)
+					matches = append(matches, "organization:"+kp.Platform)
 				}
 				// Check known orgs against guessed bio/employer/unstructured
 				if !hasOrgMatch && len(knownOrgs) > 0 && scoreOrganizationMatch(knownOrgs, guessed.Bio, getEmployer(guessed.Fields), guessed.Unstructured) {
 					hasOrgMatch = true
-					matches = append(matches, "organization:"+k.Platform)
+					matches = append(matches, "organization:"+kp.Platform)
 				}
 			}
 
@@ -1156,7 +1137,7 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 					for _, org := range knownOrgs {
 						if strings.Contains(guessedEmployer, org) || strings.Contains(org, guessedEmployer) {
 							hasOrgMatch = true
-							matches = append(matches, "organization:"+k.Platform)
+							matches = append(matches, "organization:"+kp.Platform)
 							break
 						}
 					}
@@ -1166,9 +1147,9 @@ func scoreMatch(guessed *profile.Profile, known []*profile.Profile, candidate ca
 
 		// Check interest match (Reddit subreddits matching GitHub bio/interests, or shared bio topics)
 		if !hasInterestMatch {
-			if scoreInterestMatch(guessed, k) {
+			if scoreInterestMatch(guessed, kp) {
 				hasInterestMatch = true
-				matches = append(matches, "interest:"+k.Platform)
+				matches = append(matches, "interest:"+kp.Platform)
 			}
 		}
 	}
@@ -1533,11 +1514,7 @@ func isComplexSlug(slug string) bool {
 
 	// Long slugs with 3+ parts are more unique (e.g., "john-david-smith")
 	parts := strings.Split(slug, "-")
-	if len(parts) >= 3 {
-		return true
-	}
-
-	return false
+	return len(parts) >= 3
 }
 
 // hasTechTitle returns true if the bio/headline contains a job title that suggests
@@ -1577,9 +1554,8 @@ func hasTechTitle(bio string) bool {
 	// Check for standalone acronyms/titles that need word boundary matching
 	// to avoid matching substrings (e.g., "cto" in "director")
 	standaloneTerms := []string{"cto", "ceo", "cio", "aws", "gcp", "azure", "oss", "ai"}
-	words := strings.FieldsFunc(bioLower, func(r rune) bool {
-		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
-	})
+	isWordChar := func(r rune) bool { return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') }
+	words := strings.FieldsFunc(bioLower, func(r rune) bool { return !isWordChar(r) })
 	wordSet := make(map[string]bool)
 	for _, w := range words {
 		wordSet[w] = true

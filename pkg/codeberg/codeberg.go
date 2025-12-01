@@ -116,7 +116,7 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	content := string(data)
 
-	p := &profile.Profile{
+	prof := &profile.Profile{
 		Platform:      platform,
 		URL:           urlStr,
 		Authenticated: false,
@@ -128,24 +128,24 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// Pattern: <meta property="og:title" content="Woohyun Joh">
 	ogTitlePattern := regexp.MustCompile(`<meta\s+property="og:title"\s+content="([^"]+)"`)
 	if m := ogTitlePattern.FindStringSubmatch(content); len(m) > 1 {
-		p.Name = strings.TrimSpace(html.UnescapeString(m[1]))
+		prof.Name = strings.TrimSpace(html.UnescapeString(m[1]))
 	}
 
 	// Fallback: Extract from avatar title attribute
 	// Pattern: title="Woohyun Joh"
-	if p.Name == "" {
+	if prof.Name == "" {
 		avatarTitlePattern := regexp.MustCompile(`<img[^>]+class="[^"]*avatar[^"]*"[^>]+title="([^"]+)"`)
 		if m := avatarTitlePattern.FindStringSubmatch(content); len(m) > 1 {
-			p.Name = strings.TrimSpace(html.UnescapeString(m[1]))
+			prof.Name = strings.TrimSpace(html.UnescapeString(m[1]))
 		}
 	}
 
 	// Fallback: Extract from profile-avatar-name header
 	// Pattern: <span class="header text center">Woohyun Joh</span>
-	if p.Name == "" {
+	if prof.Name == "" {
 		headerPattern := regexp.MustCompile(`<span\s+class="header[^"]*"[^>]*>([^<]+)</span>`)
 		if m := headerPattern.FindStringSubmatch(content); len(m) > 1 {
-			p.Name = strings.TrimSpace(html.UnescapeString(m[1]))
+			prof.Name = strings.TrimSpace(html.UnescapeString(m[1]))
 		}
 	}
 
@@ -157,7 +157,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 		bio := strings.TrimSpace(html.UnescapeString(m[1]))
 		// Filter out Codeberg's default description
 		if bio != "" && !strings.Contains(bio, "Codeberg is a non-profit") {
-			p.Bio = bio
+			prof.Bio = bio
 		}
 	}
 
@@ -171,16 +171,16 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 		if !strings.Contains(website, "codeberg.org") &&
 			!strings.Contains(website, "docs.codeberg.org") &&
 			!strings.Contains(website, "blog.codeberg.org") {
-			p.Website = website
+			prof.Website = website
 		}
 	}
 	// Also try href first pattern
-	if p.Website == "" {
+	if prof.Website == "" {
 		websitePattern2 := regexp.MustCompile(`<a[^>]+href="(https?://[^"]+)"[^>]+rel="[^"]*\bme\b[^"]*"`)
 		if m := websitePattern2.FindStringSubmatch(content); len(m) > 1 {
 			website := m[1]
 			if !strings.Contains(website, "codeberg.org") {
-				p.Website = website
+				prof.Website = website
 			}
 		}
 	}
@@ -189,17 +189,17 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// Pattern: Joined on 2023-04-06
 	joinedPattern := regexp.MustCompile(`Joined\s+on\s+(\d{4}-\d{2}-\d{2})`)
 	if m := joinedPattern.FindStringSubmatch(content); len(m) > 1 {
-		p.Fields["joined"] = m[1]
+		prof.Fields["joined"] = m[1]
 	}
 
 	// Extract follower/following counts
 	followersPattern := regexp.MustCompile(`(\d+)\s*followers`)
 	if m := followersPattern.FindStringSubmatch(content); len(m) > 1 {
-		p.Fields["followers"] = m[1]
+		prof.Fields["followers"] = m[1]
 	}
 	followingPattern := regexp.MustCompile(`(\d+)\s*following`)
 	if m := followingPattern.FindStringSubmatch(content); len(m) > 1 {
-		p.Fields["following"] = m[1]
+		prof.Fields["following"] = m[1]
 	}
 
 	// Extract pronouns if present (e.g., "he/him")
@@ -208,7 +208,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	if m := pronounsPattern.FindStringSubmatch(content); len(m) > 1 {
 		pronouns := strings.TrimSpace(m[1])
 		if pronouns != "" && len(pronouns) < 20 { // Sanity check
-			p.Fields["pronouns"] = pronouns
+			prof.Fields["pronouns"] = pronouns
 		}
 	}
 
@@ -216,7 +216,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// because the footer contains Codeberg's own institutional links (their Mastodon, blog, etc.)
 	// which are not related to the user being profiled.
 
-	return p
+	return prof
 }
 
 func extractUsername(urlStr string) string {

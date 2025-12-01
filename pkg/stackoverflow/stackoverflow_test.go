@@ -126,10 +126,13 @@ func TestFetch_NotFound(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = server.Client()
 
-	_, err := client.Fetch(ctx, server.URL+"/users/999999/nonexistent")
+	_, err = client.Fetch(ctx, server.URL+"/users/999999/nonexistent")
 	if err == nil {
 		t.Error("Fetch() expected error for 404, got nil")
 	}

@@ -169,7 +169,10 @@ func TestFetch_ViaAPI(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
 	// Create a custom transport that redirects all requests to our test server
 	client.httpClient = &http.Client{
@@ -229,7 +232,10 @@ func TestFetch_ViaHTML(t *testing.T) {
 	defer server.Close()
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	client.httpClient = server.Client()
 
 	profile, err := client.Fetch(ctx, server.URL+"/@johndoe")
@@ -247,9 +253,12 @@ func TestFetch_ViaHTML(t *testing.T) {
 
 func TestFetch_InvalidURL(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "://invalid")
+	_, err = client.Fetch(ctx, "://invalid")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid URL, got nil")
 	}
@@ -257,9 +266,12 @@ func TestFetch_InvalidURL(t *testing.T) {
 
 func TestFetch_InvalidUsername(t *testing.T) {
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
-	_, err := client.Fetch(ctx, "https://mastodon.social/about")
+	_, err = client.Fetch(ctx, "https://mastodon.social/about")
 	if err == nil {
 		t.Error("Fetch() expected error for invalid username, got nil")
 	}
@@ -306,7 +318,10 @@ func TestParseAPIResponse(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	client, _ := New(ctx)
+	client, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

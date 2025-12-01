@@ -115,7 +115,7 @@ func main() {
 		}
 	case *recursive:
 		if !isURL(input) {
-			fmt.Fprintf(os.Stderr, "Error: -r mode requires a URL, not a username\n")
+			fmt.Fprint(os.Stderr, "Error: -r mode requires a URL, not a username\n")
 			os.Exit(1)
 		}
 		profiles, err := sociopath.FetchRecursive(ctx, input, opts...)
@@ -129,7 +129,7 @@ func main() {
 		}
 	default:
 		if !isURL(input) {
-			fmt.Fprintf(os.Stderr, "Error: requires a URL, not a username. Use --guess to search by username.\n")
+			fmt.Fprint(os.Stderr, "Error: requires a URL, not a username. Use --guess to search by username.\n")
 			os.Exit(1)
 		}
 		profile, err := sociopath.Fetch(ctx, input, opts...)
