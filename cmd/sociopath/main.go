@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeGROOVE-dev/sociopath"
-	"github.com/codeGROOVE-dev/sociopath/cache"
+	"github.com/codeGROOVE-dev/sociopath/pkg/cache"
+	"github.com/codeGROOVE-dev/sociopath/pkg/sociopath"
 )
 
 func main() {

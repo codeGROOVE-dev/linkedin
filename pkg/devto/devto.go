@@ -1,0 +1,212 @@
+// Package devto fetches Dev.to user profile data.
+package devto
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"html"
+	"io"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/codeGROOVE-dev/sociopath/pkg/cache"
+	"github.com/codeGROOVE-dev/sociopath/pkg/htmlutil"
+	"github.com/codeGROOVE-dev/sociopath/pkg/profile"
+)
+
+const platform = "devto"
+
+// Match returns true if the URL is a Dev.to profile URL.
+func Match(urlStr string) bool {
+	return strings.Contains(strings.ToLower(urlStr), "dev.to/")
+}
+
+// AuthRequired returns false because Dev.to profiles are public.
+func AuthRequired() bool { return false }
+
+// Client handles Dev.to requests.
+type Client struct {
+	httpClient *http.Client
+	cache      cache.HTTPCache
+	logger     *slog.Logger
+}
+
+// Option configures a Client.
+type Option func(*config)
+
+type config struct {
+	cache  cache.HTTPCache
+	logger *slog.Logger
+}
+
+// WithHTTPCache sets the HTTP cache.
+func WithHTTPCache(httpCache cache.HTTPCache) Option {
+	return func(c *config) { c.cache = httpCache }
+}
+
+// WithLogger sets a custom logger.
+func WithLogger(logger *slog.Logger) Option {
+	return func(c *config) { c.logger = logger }
+}
+
+// New creates a Dev.to client.
+func New(ctx context.Context, opts ...Option) (*Client, error) {
+	cfg := &config{logger: slog.Default()}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return &Client{
+		httpClient: &http.Client{
+			Timeout: 3 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // needed for corporate proxies
+			},
+		},
+		cache:  cfg.cache,
+		logger: cfg.logger,
+	}, nil
+}
+
+// Fetch retrieves a Dev.to profile.
+func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, error) {
+	username := extractUsername(urlStr)
+	if username == "" {
+		return nil, fmt.Errorf("could not extract username from: %s", urlStr)
+	}
+
+	c.logger.InfoContext(ctx, "fetching devto profile", "url", urlStr, "username", username)
+
+	// Check cache
+	if c.cache != nil {
+		if data, _, _, found := c.cache.Get(ctx, urlStr); found {
+			return parseHTML(data, urlStr, username), nil
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "sociopath/1.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache response (async, errors intentionally ignored)
+	if c.cache != nil {
+		_ = c.cache.SetAsync(ctx, urlStr, body, "", nil) //nolint:errcheck // async, error ignored
+	}
+
+	return parseHTML(body, urlStr, username), nil
+}
+
+func parseHTML(data []byte, urlStr, username string) *profile.Profile {
+	content := string(data)
+
+	p := &profile.Profile{ //nolint:varnamelen // p for profile is idiomatic
+
+		Platform:      platform,
+		URL:           urlStr,
+		Authenticated: false,
+		Username:      username,
+		Fields:        make(map[string]string),
+	}
+
+	// Extract name from crayons-title h1
+	namePattern := regexp.MustCompile(`<h1[^>]*class="[^"]*crayons-title[^"]*"[^>]*>\s*([^<]+)\s*</h1>`)
+	if m := namePattern.FindStringSubmatch(content); len(m) > 1 {
+		p.Name = strings.TrimSpace(html.UnescapeString(m[1]))
+	}
+
+	// Fallback to og:title
+	if p.Name == "" {
+		title := htmlutil.Title(content)
+		if idx := strings.Index(title, " - DEV"); idx > 0 {
+			p.Name = strings.TrimSpace(title[:idx])
+		}
+	}
+
+	// Extract bio from meta description
+	p.Bio = htmlutil.Description(content)
+
+	// Extract location - look for <title>Location</title> followed by <span>location</span>
+	locPattern := regexp.MustCompile(`(?s)<title[^>]*>Location</title>.*?</svg>\s*<span>\s*([^<]+?)\s*</span>`)
+	if m := locPattern.FindStringSubmatch(content); len(m) > 1 {
+		loc := strings.TrimSpace(html.UnescapeString(m[1]))
+		if loc != "" && !strings.Contains(strings.ToLower(loc), "joined") {
+			p.Location = loc
+		}
+	}
+
+	// Extract joined date
+	joinedPattern := regexp.MustCompile(`<time\s+datetime="([^"]+)"[^>]*>([^<]+)</time>`)
+	if m := joinedPattern.FindStringSubmatch(content); len(m) > 2 {
+		p.Fields["joined"] = strings.TrimSpace(m[2])
+		p.Fields["joined_datetime"] = m[1]
+	}
+
+	// Extract work/employment - look for <p>Work</p> followed by value
+	workPattern := regexp.MustCompile(`<strong[^>]*>\s*<p>Work</p>\s*</strong>\s*<p[^>]*>\s*<p>([^<]+)</p>`)
+	if m := workPattern.FindStringSubmatch(content); len(m) > 1 {
+		work := strings.TrimSpace(html.UnescapeString(m[1]))
+		if work != "" {
+			p.Fields["work"] = work
+		}
+	}
+
+	// Extract website - look for profile-header__meta__item link
+	websitePattern := regexp.MustCompile(`<a\s+href=["'](https?://[^"']+)["'][^>]*class="[^"]*profile-header__meta__item[^"]*"`)
+	if m := websitePattern.FindStringSubmatch(content); len(m) > 1 {
+		website := m[1]
+		// Filter out social media URLs
+		if !strings.Contains(website, "twitter.com") &&
+			!strings.Contains(website, "x.com") &&
+			!strings.Contains(website, "github.com") &&
+			!strings.Contains(website, "linkedin.com") {
+			p.Website = website
+		}
+	}
+
+	// Extract Twitter
+	twitterPattern := regexp.MustCompile(`<a[^>]+href=["'](https?://(?:twitter\.com|x\.com)/[^"']+)["']`)
+	if m := twitterPattern.FindStringSubmatch(content); len(m) > 1 {
+		p.Fields["twitter"] = m[1]
+	}
+
+	// Extract GitHub
+	githubPattern := regexp.MustCompile(`<a[^>]+href=["'](https?://github\.com/[^"']+)["']`)
+	if m := githubPattern.FindStringSubmatch(content); len(m) > 1 {
+		p.Fields["github"] = m[1]
+	}
+
+	p.SocialLinks = htmlutil.SocialLinks(content)
+
+	return p
+}
+
+func extractUsername(urlStr string) string {
+	if idx := strings.Index(urlStr, "dev.to/"); idx != -1 {
+		username := urlStr[idx+len("dev.to/"):]
+		username = strings.Split(username, "/")[0]
+		username = strings.Split(username, "?")[0]
+		return strings.TrimSpace(username)
+	}
+	return ""
+}

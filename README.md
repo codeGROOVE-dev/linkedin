@@ -59,9 +59,9 @@ JSON to stdout. Guessed profiles include confidence scores:
 ## Library
 
 ```go
-profiles, _ := sociopath.FetchRecursiveWithGuess(ctx, url,
-    sociopath.WithBrowserCookies())
+import "github.com/codeGROOVE-dev/sociopath/pkg/sociopath"
 
+profiles, _ := sociopath.FetchRecursiveWithGuess(ctx, url, sociopath.WithBrowserCookies())
 for _, p := range profiles {
     fmt.Printf("%s (%.0f%% confidence)\n", p.URL, p.Confidence*100)
 }
