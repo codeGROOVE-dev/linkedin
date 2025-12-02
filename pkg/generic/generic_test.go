@@ -204,3 +204,185 @@ func TestWithOptions(t *testing.T) {
 		}
 	})
 }
+
+func TestIsBlogPage(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "RSS feed link",
+			content: `<link rel="alternate" type="application/rss+xml" href="/feed.xml">`,
+			want:    true,
+		},
+		{
+			name:    "Atom feed link",
+			content: `<link rel="alternate" type="application/atom+xml" href="/feed.xml">`,
+			want:    true,
+		},
+		{
+			name:    "multiple post links",
+			content: `<a href="/posts/a">A</a><a href="/posts/b">B</a><a href="/posts/c">C</a>`,
+			want:    true,
+		},
+		{
+			name:    "recent posts heading",
+			content: `<h2>Recent Posts</h2>`,
+			want:    true,
+		},
+		{
+			name:    "latest posts heading",
+			content: `<h1>Latest Posts</h1>`,
+			want:    true,
+		},
+		{
+			name:    "not a blog",
+			content: `<html><body><h1>About Me</h1><p>Hello world</p></body></html>`,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBlogPage(tt.content); got != tt.want {
+				t.Errorf("isBlogPage() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsPostURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"/posts/2025/my-article/", true},
+		{"/post/hello-world", true},
+		{"/blog/2024/post", true},
+		{"/article/test", true},
+		{"/2024/some-post", true},
+		{"/about", false},
+		{"/contact", false},
+		{"https://example.com/", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if got := isPostURL(tt.url); got != tt.want {
+				t.Errorf("isPostURL(%q) = %v, want %v", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractBlogPosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		html      string
+		baseURL   string
+		wantCount int
+		wantFirst string
+	}{
+		{
+			name: "choosehappy.dev style",
+			html: `<html>
+				<head><link rel="alternate" type="application/atom+xml" href="/feed.xml"></head>
+				<body>
+				<h2>recent posts</h2>
+				<ul>
+				<li><a href="/posts/2025/llms-doing-the-dirty-blog-work/">Using LLMs to do dirty blog work</a> - 2025-07-07</li>
+				<li><a href="/posts/2025/reinstalling-our-home-storage-server/">Reinstalling our home storage server</a> - 2025-06-21</li>
+				</ul>
+				</body></html>`,
+			baseURL:   "https://choosehappy.dev/",
+			wantCount: 2,
+			wantFirst: "Using LLMs to do dirty blog work",
+		},
+		{
+			name: "article elements",
+			html: `<html>
+				<head><link rel="alternate" type="application/rss+xml" href="/rss"></head>
+				<body>
+				<article>
+					<a href="/blog/2024/post-one">Post One</a>
+					<a href="/blog/2024/post-two">Post Two</a>
+				</article>
+				</body></html>`,
+			baseURL:   "https://example.com/",
+			wantCount: 2,
+			wantFirst: "Post One",
+		},
+		{
+			name: "not a blog",
+			html: `<html><body><h1>About Me</h1><p>Hello world</p>
+				<a href="/contact">Contact</a>
+				</body></html>`,
+			baseURL:   "https://example.com/",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			posts := extractBlogPosts(tt.html, tt.baseURL)
+			if len(posts) != tt.wantCount {
+				t.Errorf("extractBlogPosts() returned %d posts, want %d", len(posts), tt.wantCount)
+			}
+			if tt.wantCount > 0 && len(posts) > 0 && posts[0].Title != tt.wantFirst {
+				t.Errorf("first post title = %q, want %q", posts[0].Title, tt.wantFirst)
+			}
+		})
+	}
+}
+
+func TestExtractDateFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"/posts/2025/my-article/", "2025-01-01"},
+		{"/blog/2024/05/post", "2024-05-01"},
+		{"/posts/2023/11/04/article", "2023-11-04"},
+		{"/about", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			if got := extractDateFromURL(tt.url); got != tt.want {
+				t.Errorf("extractDateFromURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseHTML_Blog(t *testing.T) {
+	html := `<html>
+		<head>
+			<title>My Blog</title>
+			<meta name="description" content="A personal blog">
+			<link rel="alternate" type="application/atom+xml" href="/feed.xml">
+		</head>
+		<body>
+		<h2>recent posts</h2>
+		<ul>
+		<li><a href="/posts/2025/first-post/">First Post</a> - 2025-01-15</li>
+		<li><a href="/posts/2024/second-post/">Second Post</a> - 2024-12-01</li>
+		</ul>
+		</body></html>`
+
+	p := parseHTML([]byte(html), "https://myblog.com/")
+
+	if p.Platform != "blog" {
+		t.Errorf("Platform = %q, want %q", p.Platform, "blog")
+	}
+	if len(p.Posts) != 2 {
+		t.Fatalf("Posts count = %d, want 2", len(p.Posts))
+	}
+	if p.Posts[0].Title != "First Post" {
+		t.Errorf("First post title = %q, want %q", p.Posts[0].Title, "First Post")
+	}
+	if p.Posts[0].URL != "https://myblog.com/posts/2025/first-post/" {
+		t.Errorf("First post URL = %q, want %q", p.Posts[0].URL, "https://myblog.com/posts/2025/first-post/")
+	}
+}

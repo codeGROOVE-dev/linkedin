@@ -6,10 +6,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,7 +20,10 @@ import (
 	"github.com/codeGROOVE-dev/sociopath/pkg/profile"
 )
 
-const platform = "generic"
+const (
+	platform     = "generic"
+	maxBlogPosts = 10
+)
 
 // Match always returns true as this is the fallback.
 func Match(_ string) bool { return true }
@@ -136,7 +141,190 @@ func parseHTML(data []byte, urlStr string) *profile.Profile {
 		}
 	}
 
+	// Extract blog posts if this looks like a blog
+	if posts := extractBlogPosts(content, urlStr); len(posts) > 0 {
+		p.Posts = posts
+		p.Platform = "blog"
+		if len(posts) > 0 && posts[0].URL != "" {
+			p.LastActive = extractDateFromURL(posts[0].URL)
+		}
+	}
+
 	return p
+}
+
+// extractBlogPosts detects if a page is a blog and extracts post entries.
+func extractBlogPosts(content, baseURL string) []profile.Post {
+	// Check for blog indicators
+	if !isBlogPage(content) {
+		return nil
+	}
+
+	var posts []profile.Post
+
+	// Parse base URL for resolving relative links
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return nil
+	}
+
+	// Pattern 1: Links with dates in format YYYY-MM-DD or similar near them
+	// e.g., <a href="/posts/2025/...">Title</a> - 2025-07-07
+	datePostPattern := regexp.MustCompile(`(?i)<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)</a>\s*[-–—]\s*(\d{4}-\d{2}-\d{2})`)
+	for _, m := range datePostPattern.FindAllStringSubmatch(content, maxBlogPosts) {
+		postURL := resolveURL(base, m[1])
+		if !isPostURL(postURL) {
+			continue
+		}
+		posts = append(posts, profile.Post{
+			Type:  profile.PostTypeArticle,
+			Title: html.UnescapeString(strings.TrimSpace(m[2])),
+			URL:   postURL,
+		})
+	}
+
+	// If we found posts with the date pattern, return them
+	if len(posts) > 0 {
+		return limitPosts(posts)
+	}
+
+	// Pattern 2: Links with date prefix in link text (e.g., "2023-04-25 – Title")
+	datePrefixPattern := regexp.MustCompile(`<a[^>]+href=["']([^"']+)["'][^>]*>(\d{4}-\d{2}-\d{2})\s*[-–—]\s*([^<]+)</a>`)
+	for _, m := range datePrefixPattern.FindAllStringSubmatch(content, maxBlogPosts) {
+		postURL := resolveURL(base, m[1])
+		if !isPostURL(postURL) {
+			continue
+		}
+		posts = append(posts, profile.Post{
+			Type:  profile.PostTypeArticle,
+			Title: html.UnescapeString(strings.TrimSpace(m[3])),
+			URL:   postURL,
+		})
+	}
+
+	if len(posts) > 0 {
+		return limitPosts(posts)
+	}
+
+	// Pattern 3: All links within an <article> element pointing to post URLs
+	articlePattern := regexp.MustCompile(`(?is)<article[^>]*>(.*?)</article>`)
+	if m := articlePattern.FindStringSubmatch(content); len(m) > 1 {
+		articleContent := m[1]
+		linkPattern := regexp.MustCompile(`<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)</a>`)
+		for _, lm := range linkPattern.FindAllStringSubmatch(articleContent, maxBlogPosts) {
+			postURL := resolveURL(base, lm[1])
+			if !isPostURL(postURL) {
+				continue
+			}
+			posts = append(posts, profile.Post{
+				Type:  profile.PostTypeArticle,
+				Title: html.UnescapeString(strings.TrimSpace(lm[2])),
+				URL:   postURL,
+			})
+		}
+	}
+
+	if len(posts) > 0 {
+		return limitPosts(posts)
+	}
+
+	// Pattern 4: Look for links in post/blog sections
+	// Find section with "posts", "articles", "blog" heading, then extract links
+	sectionPattern := regexp.MustCompile(`(?is)<h[123][^>]*>[^<]*(?:posts?|articles?|blog)[^<]*</h[123]>\s*(.*?)(?:<h[123]|</body|$)`)
+	if m := sectionPattern.FindStringSubmatch(content); len(m) > 1 {
+		sectionContent := m[1]
+		linkPattern := regexp.MustCompile(`<a[^>]+href=["']([^"']+)["'][^>]*>([^<]+)</a>`)
+		for _, lm := range linkPattern.FindAllStringSubmatch(sectionContent, maxBlogPosts) {
+			postURL := resolveURL(base, lm[1])
+			if !isPostURL(postURL) {
+				continue
+			}
+			posts = append(posts, profile.Post{
+				Type:  profile.PostTypeArticle,
+				Title: html.UnescapeString(strings.TrimSpace(lm[2])),
+				URL:   postURL,
+			})
+		}
+	}
+
+	return limitPosts(posts)
+}
+
+// limitPosts returns at most maxBlogPosts posts.
+func limitPosts(posts []profile.Post) []profile.Post {
+	if len(posts) > maxBlogPosts {
+		return posts[:maxBlogPosts]
+	}
+	return posts
+}
+
+// isBlogPage checks if the page appears to be a blog.
+func isBlogPage(content string) bool {
+	lower := strings.ToLower(content)
+
+	// Check for RSS/Atom feed links (strong signal)
+	if strings.Contains(lower, "application/rss+xml") || strings.Contains(lower, "application/atom+xml") {
+		return true
+	}
+
+	// Check for blog-related URL patterns in links
+	blogURLPatterns := []string{"/posts/", "/post/", "/blog/", "/articles/", "/article/"}
+	linkCount := 0
+	for _, pattern := range blogURLPatterns {
+		linkCount += strings.Count(lower, pattern)
+	}
+	if linkCount >= 3 {
+		return true
+	}
+
+	// Check for blog-related headings
+	headingPattern := regexp.MustCompile(`(?i)<h[123][^>]*>[^<]*(?:recent posts?|latest posts?|blog posts?|articles?)[^<]*</h[123]>`)
+	return headingPattern.MatchString(content)
+}
+
+// isPostURL checks if a URL looks like a blog post URL.
+func isPostURL(urlStr string) bool {
+	lower := strings.ToLower(urlStr)
+
+	// Must contain blog-like path segments
+	blogPaths := []string{"/posts/", "/post/", "/blog/", "/article/", "/articles/", "/news/", "/story/"}
+	for _, path := range blogPaths {
+		if strings.Contains(lower, path) {
+			return true
+		}
+	}
+
+	// Check for year patterns like /2024/ or /2025/
+	yearPattern := regexp.MustCompile(`/20[12]\d/`)
+	return yearPattern.MatchString(urlStr)
+}
+
+// resolveURL resolves a potentially relative URL against a base.
+func resolveURL(base *url.URL, ref string) string {
+	refURL, err := url.Parse(ref)
+	if err != nil {
+		return ref
+	}
+	return base.ResolveReference(refURL).String()
+}
+
+// extractDateFromURL extracts an ISO date from a URL containing year/month/day patterns.
+func extractDateFromURL(urlStr string) string {
+	// Look for /YYYY/MM/DD/ or /YYYY-MM-DD/ patterns
+	datePattern := regexp.MustCompile(`/(20[12]\d)[/-]?(\d{2})?[/-]?(\d{2})?/`)
+	if m := datePattern.FindStringSubmatch(urlStr); len(m) > 1 {
+		year := m[1]
+		month := "01"
+		day := "01"
+		if len(m) > 2 && m[2] != "" {
+			month = m[2]
+		}
+		if len(m) > 3 && m[3] != "" {
+			day = m[3]
+		}
+		return fmt.Sprintf("%s-%s-%s", year, month, day)
+	}
+	return ""
 }
 
 // cleanEmail removes anti-spam text from email addresses.
