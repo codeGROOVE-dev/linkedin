@@ -22,6 +22,7 @@ package sociopath
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sort"
 	"strings"
@@ -512,6 +513,14 @@ func FetchRecursive(ctx context.Context, url string, opts ...Option) ([]*profile
 
 			if !tryGeneric {
 				cfg.logger.WarnContext(ctx, "failed to fetch profile", "url", item.url, "error", err)
+				// If it's an auth-related error, add a stub profile with the error
+				if errors.Is(err, profile.ErrNoCookies) || errors.Is(err, profile.ErrAuthRequired) {
+					profiles = append(profiles, &profile.Profile{
+						Platform: PlatformForURL(item.url),
+						URL:      item.url,
+						Error:    "login required",
+					})
+				}
 				continue
 			}
 

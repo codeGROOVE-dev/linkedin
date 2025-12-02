@@ -21,6 +21,7 @@ type Profile struct {
 	Platform      string `json:",omitempty"` // Platform name: "linkedin", "twitter", "mastodon", etc.
 	URL           string `json:",omitempty"` // Original URL fetched
 	Authenticated bool   `json:",omitempty"` // Whether login cookies were used
+	Error         string `json:",omitempty"` // Error message if fetch failed (e.g., "login required")
 
 	// Core profile data
 	Username string `json:",omitempty"` // Handle/username (without @ prefix)
