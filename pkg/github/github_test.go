@@ -249,7 +249,7 @@ func TestFetch_InvalidUsername(t *testing.T) {
 	}
 }
 
-func TestExtractREADME(t *testing.T) {
+func TestExtractREADMEHTML(t *testing.T) {
 	tests := []struct {
 		name    string
 		html    string
@@ -274,12 +274,12 @@ func TestExtractREADME(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractREADME(tt.html)
+			got := extractREADMEHTML(tt.html)
 			if tt.wantLen == 0 && got != "" {
-				t.Errorf("extractREADME() = %q, want empty", got)
+				t.Errorf("extractREADMEHTML() = %q, want empty", got)
 			}
 			if tt.wantLen > 0 && len(got) < tt.wantLen {
-				t.Errorf("extractREADME() length = %d, want at least %d", len(got), tt.wantLen)
+				t.Errorf("extractREADMEHTML() length = %d, want at least %d", len(got), tt.wantLen)
 			}
 		})
 	}

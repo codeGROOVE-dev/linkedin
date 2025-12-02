@@ -128,13 +128,15 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 			prof.Fields["organizations"] = strings.Join(orgs, ", ")
 		}
 
-		// Extract README
-		readme := extractREADME(htmlContent)
-		if readme != "" {
-			prof.Unstructured = readme
-			// Extract social links from README
-			readmeLinks := htmlutil.SocialLinks(readme)
+		// Extract README - get raw HTML for link extraction, then convert to markdown
+		readmeHTML := extractREADMEHTML(htmlContent)
+		if readmeHTML != "" {
+			// Extract social links from raw HTML (before conversion loses image-only links)
+			readmeLinks := htmlutil.SocialLinks(readmeHTML)
 			prof.SocialLinks = append(prof.SocialLinks, readmeLinks...)
+
+			// Convert to markdown for unstructured content
+			prof.Unstructured = htmlutil.ToMarkdown(readmeHTML)
 		}
 	}
 
@@ -182,8 +184,8 @@ func (c *Client) fetchHTML(ctx context.Context, urlStr string) (content string, 
 	return content, links
 }
 
-// extractREADME extracts and converts the README from GitHub profile HTML to markdown.
-func extractREADME(htmlContent string) string {
+// extractREADMEHTML extracts the raw README HTML from GitHub profile page.
+func extractREADMEHTML(htmlContent string) string {
 	// GitHub embeds README in <article class="markdown-body entry-content ...">
 	// Extract everything from the opening tag to the closing </article>
 	articlePattern := regexp.MustCompile(`(?s)<article[^>]*class="[^"]*markdown-body[^"]*"[^>]*>(.*?)</article>`)
@@ -197,8 +199,7 @@ func extractREADME(htmlContent string) string {
 		return ""
 	}
 
-	// Convert HTML to markdown
-	return htmlutil.ToMarkdown(readmeHTML)
+	return readmeHTML
 }
 
 // extractSocialLinks extracts social media links from HTML, focusing on rel="me" verified links.

@@ -368,21 +368,21 @@ var socialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`https?://(?:www\.)?youtube\.com/(?:@[\w-]+|c/[\w-]+|user/[\w-]+|channel/[\w-]+)`), // YouTube handles and channels
 	regexp.MustCompile(`https?://(?:www\.)?twitch\.tv/\w+`),
 	regexp.MustCompile(`https?://(?:www\.)?tiktok\.com/@\w+`),
-	regexp.MustCompile(`https?://(?:www\.)?github\.com/[\w-]+/?(?:[^\w-/]|$)`),     // Profile only, not /user/project
-	regexp.MustCompile(`https?://(?:www\.)?(?:discord|discordapp)\.com/users/\d+`), // Discord user profiles
-	regexp.MustCompile(`https?://(?:www\.)?vk\.com/[\w.]+`),                        // VKontakte
-	regexp.MustCompile(`https?://(?:www\.)?habr\.com/(?:ru/)?users/[\w-]+`),        // Habr (formerly Habrhabr)
-	regexp.MustCompile(`https?://habrahabr\.ru/users/[\w-]+`),                      // Old Habrhabr domain
-	regexp.MustCompile(`https?://(?:www\.)?medium\.com/@[\w-]+`),                   // Medium
-	regexp.MustCompile(`https?://(?:www\.)?reddit\.com/user/[\w-]+`),               // Reddit
-	regexp.MustCompile(`https?://(?:old\.)?reddit\.com/user/[\w-]+`),               // Old Reddit
-	regexp.MustCompile(`https?://[\w-]+\.substack\.com`),                           // Substack
-	regexp.MustCompile(`https?://(?:www\.)?weibo\.com/[\w-]+`),                     // Weibo
-	regexp.MustCompile(`https?://(?:www\.)?weibo\.cn/[\w-]+`),                      // Weibo mobile
-	regexp.MustCompile(`https?://(?:www\.)?zhihu\.com/people/[\w-]+`),              // Zhihu
-	regexp.MustCompile(`https?://space\.bilibili\.com/\d+`),                        // Bilibili
-	regexp.MustCompile(`https?://(?:www\.)?bilibili\.com/\d+`),                     // Bilibili short URL
-	regexp.MustCompile(`skype:[\w.-]+\??[\w=&]*`),                                  // Skype links
+	regexp.MustCompile(`https?://(?:www\.)?github\.com/[\w-]+/?(?:[^\w-/]|$)`),         // Profile only, not /user/project
+	regexp.MustCompile(`https?://(?:www\.)?(?:discord|discordapp)\.com/users/[\w.-]+`), // Discord user profiles (numeric ID or username)
+	regexp.MustCompile(`https?://(?:www\.)?vk\.com/[\w.]+`),                            // VKontakte
+	regexp.MustCompile(`https?://(?:www\.)?habr\.com/(?:ru/)?users/[\w-]+`),            // Habr (formerly Habrhabr)
+	regexp.MustCompile(`https?://habrahabr\.ru/users/[\w-]+`),                          // Old Habrhabr domain
+	regexp.MustCompile(`https?://(?:www\.)?medium\.com/@[\w-]+`),                       // Medium
+	regexp.MustCompile(`https?://(?:www\.)?reddit\.com/user/[\w-]+`),                   // Reddit
+	regexp.MustCompile(`https?://(?:old\.)?reddit\.com/user/[\w-]+`),                   // Old Reddit
+	regexp.MustCompile(`https?://[\w-]+\.substack\.com`),                               // Substack
+	regexp.MustCompile(`https?://(?:www\.)?weibo\.com/[\w-]+`),                         // Weibo
+	regexp.MustCompile(`https?://(?:www\.)?weibo\.cn/[\w-]+`),                          // Weibo mobile
+	regexp.MustCompile(`https?://(?:www\.)?zhihu\.com/people/[\w-]+`),                  // Zhihu
+	regexp.MustCompile(`https?://space\.bilibili\.com/\d+`),                            // Bilibili
+	regexp.MustCompile(`https?://(?:www\.)?bilibili\.com/\d+`),                         // Bilibili short URL
+	regexp.MustCompile(`skype:[\w.-]+\??[\w=&]*`),                                      // Skype links
 	regexp.MustCompile(`https?://bsky\.app/profile/[\w.-]+`),
 	regexp.MustCompile(`https?://[\w.-]+\.social/@\w+`),
 	regexp.MustCompile(`https?://mastodon\.[\w.-]+/@\w+`),
