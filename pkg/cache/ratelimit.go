@@ -34,10 +34,11 @@ func (r *DomainRateLimiter) SetDomainDelay(domain string, delay time.Duration) {
 // Wait blocks until it's safe to make a request to the given URL's domain.
 // It ensures at least minDelay has passed since the last request to that domain.
 func (r *DomainRateLimiter) Wait(rawURL string) {
-	domain := extractDomain(rawURL)
-	if domain == "" {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
 		return
 	}
+	domain := u.Host
 
 	// Get or create per-domain mutex
 	muI, _ := r.mu.LoadOrStore(domain, &sync.Mutex{})
@@ -69,13 +70,4 @@ func (r *DomainRateLimiter) Wait(rawURL string) {
 
 	// Record this request
 	r.lastRequest.Store(domain, time.Now())
-}
-
-// extractDomain returns the host portion of a URL, or empty string on error.
-func extractDomain(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return u.Host
 }

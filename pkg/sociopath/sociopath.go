@@ -71,9 +71,10 @@ var (
 type Option func(*config)
 
 type config struct {
-	cookies        map[string]string
 	cache          cache.HTTPCache
+	cookies        map[string]string
 	logger         *slog.Logger
+	githubToken    string
 	browserCookies bool
 }
 
@@ -95,6 +96,11 @@ func WithHTTPCache(httpCache cache.HTTPCache) Option {
 // WithLogger sets a custom logger.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) { c.logger = logger }
+}
+
+// WithGitHubToken sets the GitHub API token for authenticated requests.
+func WithGitHubToken(token string) Option {
+	return func(c *config) { c.githubToken = token }
 }
 
 // Fetch retrieves a profile from the given URL.
@@ -373,6 +379,9 @@ func fetchGitHub(ctx context.Context, url string, cfg *config) (*profile.Profile
 	}
 	if cfg.logger != nil {
 		opts = append(opts, github.WithLogger(cfg.logger))
+	}
+	if cfg.githubToken != "" {
+		opts = append(opts, github.WithToken(cfg.githubToken))
 	}
 
 	client, err := github.New(ctx, opts...)

@@ -19,7 +19,7 @@ const errorTTL = 5 * 24 * time.Hour // Cache HTTP errors for 5 days
 var globalRateLimiter = newGlobalRateLimiter()
 
 func newGlobalRateLimiter() *DomainRateLimiter {
-	r := NewDomainRateLimiter(600 * time.Millisecond)
+	r := NewDomainRateLimiter(200 * time.Millisecond)
 	r.SetDomainDelay("www.linkedin.com", 1200*time.Millisecond)
 	return r
 }

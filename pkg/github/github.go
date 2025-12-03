@@ -224,6 +224,16 @@ func (e *APIError) Error() string {
 }
 
 func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
+	// Try GraphQL first (gets social accounts), fall back to REST API
+	if c.token != "" {
+		prof, err := c.fetchGraphQL(ctx, urlStr, username)
+		if err == nil {
+			return prof, nil
+		}
+		c.logger.WarnContext(ctx, "GraphQL fetch failed, falling back to REST API", "error", err)
+	}
+
+	// REST API fallback
 	apiURL := "https://api.github.com/users/" + username
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
@@ -243,6 +253,161 @@ func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profil
 	}
 
 	return parseJSON(body, urlStr, username)
+}
+
+func (c *Client) fetchGraphQL(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
+	query := `
+	query($login: String!) {
+		user(login: $login) {
+			name
+			login
+			location
+			bio
+			company
+			websiteUrl
+			twitterUsername
+			createdAt
+			updatedAt
+
+			socialAccounts(first: 10) {
+				nodes {
+					provider
+					url
+					displayName
+				}
+			}
+
+			followers {
+				totalCount
+			}
+			following {
+				totalCount
+			}
+
+			repositories(first: 1, ownerAffiliations: OWNER) {
+				totalCount
+			}
+		}
+	}
+	`
+
+	variables := map[string]string{"login": username}
+	reqBody := map[string]any{
+		"query":     query,
+		"variables": variables,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling GraphQL request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.github.com/graphql", strings.NewReader(string(jsonData)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "sociopath/1.0")
+
+	body, err := c.doAPIRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseGraphQLResponse(body, urlStr, username)
+}
+
+func parseGraphQLResponse(data []byte, urlStr, _ string) (*profile.Profile, error) {
+	var response struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Data struct {
+			User struct {
+				Name           string `json:"name"`
+				Login          string `json:"login"`
+				Location       string `json:"location"`
+				Bio            string `json:"bio"`
+				Company        string `json:"company"`
+				WebsiteURL     string `json:"websiteUrl"`
+				TwitterUser    string `json:"twitterUsername"`
+				SocialAccounts struct {
+					Nodes []struct {
+						URL         string `json:"url"`
+						Provider    string `json:"provider"`
+						DisplayName string `json:"displayName"`
+					} `json:"nodes"`
+				} `json:"socialAccounts"`
+				Followers    struct{ TotalCount int } `json:"followers"`
+				Following    struct{ TotalCount int } `json:"following"`
+				Repositories struct{ TotalCount int } `json:"repositories"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response: %w", err)
+	}
+
+	if len(response.Errors) > 0 {
+		return nil, fmt.Errorf("GraphQL error: %s", response.Errors[0].Message)
+	}
+
+	user := response.Data.User
+	prof := &profile.Profile{
+		Platform:      platform,
+		URL:           urlStr,
+		Authenticated: true,
+		Username:      user.Login,
+		Name:          user.Name,
+		Bio:           user.Bio,
+		Location:      user.Location,
+		Fields:        make(map[string]string),
+	}
+
+	// Add website
+	if user.WebsiteURL != "" {
+		website := user.WebsiteURL
+		if !strings.HasPrefix(website, "http") {
+			website = "https://" + website
+		}
+		prof.Website = website
+		prof.Fields["website"] = website
+	}
+
+	// Add company
+	if user.Company != "" {
+		company := strings.TrimPrefix(user.Company, "@")
+		prof.Fields["company"] = company
+	}
+
+	// Add stats
+	if user.Repositories.TotalCount > 0 {
+		prof.Fields["public_repos"] = strconv.Itoa(user.Repositories.TotalCount)
+	}
+	if user.Followers.TotalCount > 0 {
+		prof.Fields["followers"] = strconv.Itoa(user.Followers.TotalCount)
+	}
+	if user.Following.TotalCount > 0 {
+		prof.Fields["following"] = strconv.Itoa(user.Following.TotalCount)
+	}
+
+	// Add Twitter from GraphQL
+	if user.TwitterUser != "" {
+		twitterURL := "https://twitter.com/" + user.TwitterUser
+		prof.Fields["twitter"] = twitterURL
+		prof.SocialLinks = append(prof.SocialLinks, twitterURL)
+	}
+
+	// Add social accounts from GraphQL - this is the key improvement!
+	for _, social := range user.SocialAccounts.Nodes {
+		if social.URL != "" {
+			prof.SocialLinks = append(prof.SocialLinks, social.URL)
+		}
+	}
+
+	return prof, nil
 }
 
 func (c *Client) doAPIRequest(ctx context.Context, req *http.Request) ([]byte, error) {
@@ -272,8 +437,10 @@ func (c *Client) doAPIRequest(ctx context.Context, req *http.Request) ([]byte, e
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
 
 	// Parse rate limit headers (GitHub uses non-canonical casing, parse errors default to 0)
-	rateLimitRemain, _ := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))        //nolint:errcheck,canonicalheader // ok
-	rateLimitReset, _ := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64) //nolint:errcheck,canonicalheader // ok
+	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing
+	rateLimitRemain, _ := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))
+	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing
+	rateLimitReset, _ := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64)
 	resetTime := time.Unix(rateLimitReset, 0)
 
 	if resp.StatusCode != http.StatusOK {
