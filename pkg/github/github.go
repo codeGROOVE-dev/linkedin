@@ -4,9 +4,12 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,6 +65,7 @@ type Client struct {
 	httpClient *http.Client
 	cache      cache.HTTPCache
 	logger     *slog.Logger
+	token      string
 }
 
 // Option configures a Client.
@@ -70,6 +74,7 @@ type Option func(*config)
 type config struct {
 	cache  cache.HTTPCache
 	logger *slog.Logger
+	token  string
 }
 
 // WithHTTPCache sets the HTTP cache.
@@ -82,6 +87,11 @@ func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) { c.logger = logger }
 }
 
+// WithToken sets the GitHub API token.
+func WithToken(token string) Option {
+	return func(c *config) { c.token = token }
+}
+
 // New creates a GitHub client.
 func New(ctx context.Context, opts ...Option) (*Client, error) {
 	cfg := &config{logger: slog.Default()}
@@ -89,10 +99,29 @@ func New(ctx context.Context, opts ...Option) (*Client, error) {
 		opt(cfg)
 	}
 
+	// Ensure logger is not nil
+	logger := cfg.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	// Try to get token from environment if not provided
+	token := cfg.token
+	if token == "" {
+		token = os.Getenv("GITHUB_TOKEN")
+	}
+
+	if token == "" {
+		logger.WarnContext(ctx, "GITHUB_TOKEN not set - GitHub API requests will be rate-limited to 60/hour")
+	} else {
+		logger.InfoContext(ctx, "using GITHUB_TOKEN for authenticated API requests")
+	}
+
 	return &Client{
 		httpClient: &http.Client{Timeout: 3 * time.Second},
 		cache:      cfg.cache,
-		logger:     cfg.logger,
+		logger:     logger,
+		token:      token,
 	}, nil
 }
 
@@ -110,14 +139,43 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 
 	c.logger.InfoContext(ctx, "fetching github profile", "url", urlStr, "username", username)
 
-	// Fetch API data
-	prof, err := c.fetchAPI(ctx, urlStr, username)
-	if err != nil {
-		return nil, err
-	}
+	// Fetch API data, with fallback to HTML scraping on failure
+	prof, apiErr := c.fetchAPI(ctx, urlStr, username)
 
 	// Fetch HTML to extract rel="me" links, README, and organizations
 	htmlContent, htmlLinks := c.fetchHTML(ctx, urlStr)
+
+	// If API failed, try to build profile from HTML
+	if apiErr != nil {
+		var gitHubAPIErr *APIError
+		if errors.As(apiErr, &gitHubAPIErr) {
+			if gitHubAPIErr.IsRateLimit {
+				c.logger.WarnContext(ctx, "GitHub API rate limited, falling back to HTML scraping",
+					"url", urlStr,
+					"reset_time", gitHubAPIErr.RateLimitReset.Format(time.RFC3339),
+				)
+			} else {
+				c.logger.WarnContext(ctx, "GitHub API access denied, falling back to HTML scraping",
+					"url", urlStr,
+					"status", gitHubAPIErr.StatusCode,
+				)
+			}
+		} else {
+			c.logger.WarnContext(ctx, "GitHub API request failed, falling back to HTML scraping",
+				"url", urlStr,
+				"error", apiErr,
+			)
+		}
+
+		// Try to build profile from HTML
+		if htmlContent == "" {
+			return nil, fmt.Errorf("API failed and no HTML content available: %w", apiErr)
+		}
+
+		prof = c.parseProfileFromHTML(ctx, htmlContent, urlStr, username)
+		c.logger.InfoContext(ctx, "built profile from HTML scraping", "url", urlStr, "username", username)
+	}
+
 	prof.SocialLinks = append(prof.SocialLinks, htmlLinks...)
 
 	// Extract README and organizations from HTML if available
@@ -147,6 +205,24 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	return prof, nil
 }
 
+// APIError contains details about a GitHub API error.
+//
+//nolint:govet // fieldalignment: intentional layout for readability
+type APIError struct {
+	StatusCode      int
+	RateLimitRemain int
+	RateLimitReset  time.Time
+	Message         string
+	IsRateLimit     bool
+}
+
+func (e *APIError) Error() string {
+	if e.IsRateLimit {
+		return fmt.Sprintf("GitHub API rate limited (resets at %s): %s", e.RateLimitReset.Format(time.RFC3339), e.Message)
+	}
+	return fmt.Sprintf("GitHub API error %d: %s", e.StatusCode, e.Message)
+}
+
 func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profile.Profile, error) {
 	apiURL := "https://api.github.com/users/" + username
 
@@ -157,12 +233,84 @@ func (c *Client) fetchAPI(ctx context.Context, urlStr, username string) (*profil
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "sociopath/1.0")
 
-	body, err := cache.FetchURL(ctx, c.cache, c.httpClient, req, c.logger)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	body, err := c.doAPIRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	return parseJSON(body, urlStr, username)
+}
+
+func (c *Client) doAPIRequest(ctx context.Context, req *http.Request) ([]byte, error) {
+	// Check cache first
+	cacheKey := req.URL.String()
+	if c.cache != nil {
+		if data, _, _, found := c.cache.Get(ctx, cacheKey); found {
+			c.cache.RecordHit()
+			if s := string(data); strings.HasPrefix(s, "ERROR:") {
+				code, _ := strconv.Atoi(strings.TrimPrefix(s, "ERROR:")) //nolint:errcheck // parse error defaults to 0 which is acceptable
+				c.logger.DebugContext(ctx, "cache hit (error)", "key", cacheKey, "status", code)
+				return nil, &APIError{StatusCode: code, Message: "cached error"}
+			}
+			c.logger.DebugContext(ctx, "cache hit", "key", cacheKey)
+			return data, nil
+		}
+		c.cache.RecordMiss()
+		c.logger.InfoContext(ctx, "cache miss", "url", req.URL.String())
+	} else {
+		c.logger.InfoContext(ctx, "cache disabled", "url", req.URL.String())
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
+
+	// Parse rate limit headers (GitHub uses non-canonical casing, parse errors default to 0)
+	rateLimitRemain, _ := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))        //nolint:errcheck,canonicalheader // ok
+	rateLimitReset, _ := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64) //nolint:errcheck,canonicalheader // ok
+	resetTime := time.Unix(rateLimitReset, 0)
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body) //nolint:errcheck // best effort read of error body
+		isRateLimit := resp.StatusCode == http.StatusForbidden && rateLimitRemain == 0
+
+		apiErr := &APIError{
+			StatusCode:      resp.StatusCode,
+			RateLimitRemain: rateLimitRemain,
+			RateLimitReset:  resetTime,
+			Message:         string(body),
+			IsRateLimit:     isRateLimit,
+		}
+
+		c.logger.WarnContext(ctx, "GitHub API request failed",
+			"url", req.URL.String(),
+			"status", resp.StatusCode,
+			"rate_limit_remaining", rateLimitRemain,
+			"rate_limit_reset", resetTime.Format(time.RFC3339),
+			"is_rate_limit", isRateLimit,
+			"response_body", string(body),
+		)
+
+		return nil, apiErr
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache successful response
+	if c.cache != nil {
+		_ = c.cache.SetAsync(ctx, cacheKey, body, "", nil) //nolint:errcheck // async write errors are non-fatal
+	}
+
+	return body, nil
 }
 
 func (c *Client) fetchHTML(ctx context.Context, urlStr string) (content string, links []string) {
@@ -433,4 +581,60 @@ func dedupeLinks(links []string) []string {
 		}
 	}
 	return result
+}
+
+// parseProfileFromHTML extracts profile data from GitHub HTML when API is unavailable.
+func (c *Client) parseProfileFromHTML(ctx context.Context, html, urlStr, username string) *profile.Profile {
+	prof := &profile.Profile{
+		Platform:      platform,
+		URL:           urlStr,
+		Authenticated: false,
+		Username:      username,
+		Fields:        make(map[string]string),
+	}
+
+	// Extract full name: <span class="p-name vcard-fullname..." itemprop="name">
+	namePattern := regexp.MustCompile(`<span[^>]+class="[^"]*p-name[^"]*"[^>]*itemprop="name"[^>]*>\s*([^<]+)`)
+	if matches := namePattern.FindStringSubmatch(html); len(matches) > 1 {
+		prof.Name = strings.TrimSpace(matches[1])
+	}
+
+	// Extract bio: <div class="p-note user-profile-bio..." data-bio-text="...">
+	bioPattern := regexp.MustCompile(`data-bio-text="([^"]+)"`)
+	if matches := bioPattern.FindStringSubmatch(html); len(matches) > 1 {
+		prof.Bio = strings.TrimSpace(matches[1])
+	}
+
+	// Extract location: <li... itemprop="homeLocation"... aria-label="Home location: ...">
+	locPattern := regexp.MustCompile(`itemprop="homeLocation"[^>]*aria-label="Home location:\s*([^"]+)"`)
+	if matches := locPattern.FindStringSubmatch(html); len(matches) > 1 {
+		prof.Location = strings.TrimSpace(matches[1])
+	}
+
+	// Extract website: <li itemprop="url" data-test-selector="profile-website-url"...>...<a...href="...">
+	websitePattern := regexp.MustCompile(`(?s)itemprop="url"[^>]*data-test-selector="profile-website-url"[^>]*>.*?href="([^"]+)"`)
+	if matches := websitePattern.FindStringSubmatch(html); len(matches) > 1 {
+		website := matches[1]
+		if !strings.HasPrefix(website, "http") {
+			website = "https://" + website
+		}
+		prof.Website = website
+		prof.Fields["website"] = website
+	}
+
+	// Extract avatar URL
+	avatarPattern := regexp.MustCompile(`<img[^>]+class="[^"]*avatar avatar-user[^"]*"[^>]+src="([^"]+)"`)
+	if matches := avatarPattern.FindStringSubmatch(html); len(matches) > 1 {
+		prof.Fields["avatar_url"] = matches[1]
+	}
+
+	c.logger.DebugContext(ctx, "parsed profile from HTML",
+		"username", username,
+		"name", prof.Name,
+		"bio", prof.Bio,
+		"location", prof.Location,
+		"website", prof.Website,
+	)
+
+	return prof
 }
