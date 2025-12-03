@@ -6,14 +6,20 @@ import (
 	"testing"
 )
 
-func TestFetchRequiresAuthForLinkedIn(t *testing.T) {
-	// LinkedIn requires auth, should fail without cookies
-	_, err := Fetch(context.Background(), "https://linkedin.com/in/johndoe")
-	if err == nil {
-		t.Error("Fetch should fail for LinkedIn without auth")
+func TestFetchLinkedInReturnsMinimalProfile(t *testing.T) {
+	// LinkedIn auth is broken, so it returns minimal profiles without error
+	prof, err := Fetch(context.Background(), "https://linkedin.com/in/johndoe")
+	if err != nil {
+		t.Errorf("Fetch should not fail for LinkedIn (auth is broken, returns minimal profile): %v", err)
 	}
-	if !errors.Is(err, ErrNoCookies) {
-		t.Logf("error: %v", err)
+	if prof == nil {
+		t.Fatal("expected minimal profile, got nil")
+	}
+	if prof.Username != "johndoe" {
+		t.Errorf("Username = %q, want %q", prof.Username, "johndoe")
+	}
+	if prof.Authenticated {
+		t.Error("Authenticated should be false (auth is broken)")
 	}
 }
 

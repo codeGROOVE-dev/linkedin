@@ -58,264 +58,69 @@ func TestExtractPublicID(t *testing.T) {
 	}
 }
 
-func TestParseCompanyFromHeadline(t *testing.T) {
-	tests := []struct {
-		headline string
-		want     string
-	}{
-		{"Software Engineer at Google", "Google"},
-		{"CEO @ Startup", "Startup"},
-		{"Engineering @Akuity", "Akuity"},
-		{"Engineer, Acme Corp", ""}, // comma-separated formats are too ambiguous (e.g., "P2P, Rust")
-		{"Senior Developer at Meta, Inc.", "Meta"},
-		{"Just a person", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.headline, func(t *testing.T) {
-			got := parseCompanyFromHeadline(tt.headline)
-			if got != tt.want {
-				t.Errorf("parseCompanyFromHeadline(%q) = %q, want %q", tt.headline, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExtractJSONField(t *testing.T) {
-	json := `{"firstName":"John","lastName":"Doe","headline":"Engineer"}`
-
-	tests := []struct {
-		field string
-		want  string
-	}{
-		{"firstName", "John"},
-		{"lastName", "Doe"},
-		{"headline", "Engineer"},
-		{"missing", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.field, func(t *testing.T) {
-			got := extractJSONField(json, tt.field)
-			if got != tt.want {
-				t.Errorf("extractJSONField(%q) = %q, want %q", tt.field, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestUnescapeJSON(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello", "hello"},
-		{`hello\nworld`, "hello\nworld"},
-		{`Tom \u0026 Jerry`, "Tom & Jerry"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := unescapeJSON(tt.input)
-			if got != tt.want {
-				t.Errorf("unescapeJSON(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestNew(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("default_requires_auth", func(t *testing.T) {
-		_, err := New(ctx)
-		if err == nil {
-			t.Fatal("New() should fail without authentication")
-		}
-		if !AuthRequired() {
-			t.Error("AuthRequired() should return true for LinkedIn")
-		}
-	})
-
-	t.Run("with_cookies", func(t *testing.T) {
-		// Test that WithCookies option is accepted with dummy cookies
-		dummyCookies := map[string]string{
-			"LINKEDIN_LI_AT":      "dummy",
-			"LINKEDIN_JSESSIONID": "dummy",
-			"LINKEDIN_LIDC":       "dummy",
-			"LINKEDIN_BCOOKIE":    "dummy",
-		}
-		client, err := New(ctx, WithCookies(dummyCookies))
+	t.Run("creates_client_without_error", func(t *testing.T) {
+		// Auth is broken, so New() should succeed without cookies
+		client, err := New(ctx)
 		if err != nil {
-			t.Fatalf("New(WithCookies) failed: %v", err)
+			t.Fatalf("New() failed: %v", err)
 		}
 		if client == nil {
-			t.Fatal("New(WithCookies) returned nil client")
+			t.Fatal("New() returned nil client")
 		}
 	})
 
 	t.Run("with_logger", func(t *testing.T) {
 		logger := slog.New(slog.DiscardHandler)
-		// LinkedIn still requires cookies even with logger
-		dummyCookies := map[string]string{
-			"LINKEDIN_LI_AT":      "dummy",
-			"LINKEDIN_JSESSIONID": "dummy",
-			"LINKEDIN_LIDC":       "dummy",
-			"LINKEDIN_BCOOKIE":    "dummy",
-		}
-		client, err := New(ctx, WithLogger(logger), WithCookies(dummyCookies))
+		client, err := New(ctx, WithLogger(logger))
 		if err != nil {
-			t.Fatalf("New(WithLogger, WithCookies) failed: %v", err)
+			t.Fatalf("New(WithLogger) failed: %v", err)
 		}
 		if client == nil {
-			t.Fatal("New(WithLogger, WithCookies) returned nil client")
+			t.Fatal("New(WithLogger) returned nil client")
 		}
 	})
 }
 
-func TestParseProfileCanonicalizesRedirectedURL(t *testing.T) {
-	// When LinkedIn redirects an old profile URL to a new one,
-	// we should update the URL to the canonical form based on the
-	// actual username returned. This helps with deduplication.
-
-	// Minimal HTML that parseProfile can extract data from
-	html := `<!DOCTYPE html>
-<html>
-<head><title>Thomas Strömberg | LinkedIn</title></head>
-<body>
-<code id="bpr-guid-123">{"publicIdentifier":"thomrstrom","firstName":"Thomas","lastName":"Strömberg"}</code>
-</body>
-</html>`
-
-	// Request old URL but get profile for thomrstrom
-	requestedURL := "https://www.linkedin.com/in/thomas-stromberg-9977261/"
-	prof, err := parseProfile([]byte(html), requestedURL)
+func TestFetch(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.DiscardHandler)
+	client, err := New(ctx, WithLogger(logger))
 	if err != nil {
-		t.Fatalf("parseProfile failed: %v", err)
+		t.Fatalf("New() failed: %v", err)
 	}
 
-	// URL should be canonicalized to the actual username
-	expectedURL := "https://www.linkedin.com/in/thomrstrom"
-	if prof.URL != expectedURL {
-		t.Errorf("parseProfile URL = %q, want %q (should canonicalize on redirect)", prof.URL, expectedURL)
-	}
+	t.Run("returns_minimal_profile", func(t *testing.T) {
+		prof, err := client.Fetch(ctx, "https://www.linkedin.com/in/johndoe")
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if prof == nil {
+			t.Fatal("Fetch() returned nil profile")
+		}
+		if prof.Platform != "linkedin" {
+			t.Errorf("Platform = %q, want %q", prof.Platform, "linkedin")
+		}
+		if prof.Username != "johndoe" {
+			t.Errorf("Username = %q, want %q", prof.Username, "johndoe")
+		}
+		if prof.URL != "https://www.linkedin.com/in/johndoe" {
+			t.Errorf("URL = %q, want %q", prof.URL, "https://www.linkedin.com/in/johndoe")
+		}
+		if prof.Authenticated {
+			t.Error("Authenticated should be false (auth is broken)")
+		}
+	})
 
-	// Username should be the actual username from the response
-	if prof.Username != "thomrstrom" {
-		t.Errorf("parseProfile Username = %q, want %q", prof.Username, "thomrstrom")
-	}
-}
-
-func TestParseProfileKeepsURLWhenMatching(t *testing.T) {
-	// When the requested URL matches the returned profile, keep the original URL
-
-	html := `<!DOCTYPE html>
-<html>
-<head><title>John Doe | LinkedIn</title></head>
-<body>
-<code id="bpr-guid-123">{"publicIdentifier":"johndoe","firstName":"John","lastName":"Doe"}</code>
-</body>
-</html>`
-
-	requestedURL := "https://www.linkedin.com/in/johndoe"
-	prof, err := parseProfile([]byte(html), requestedURL)
-	if err != nil {
-		t.Fatalf("parseProfile failed: %v", err)
-	}
-
-	// URL should remain as requested since it matches
-	if prof.URL != requestedURL {
-		t.Errorf("parseProfile URL = %q, want %q (should keep original when matching)", prof.URL, requestedURL)
-	}
-}
-
-func TestExtractLocationFromGraphQLResponse(t *testing.T) {
-	tests := []struct {
-		name string
-		json string
-		want string
-	}{
-		{
-			name: "geoLocationName",
-			json: `{"geoLocationName":"Greater Boston"}`,
-			want: "Greater Boston",
-		},
-		{
-			name: "locationName",
-			json: `{"locationName":"San Francisco Bay Area"}`,
-			want: "San Francisco Bay Area",
-		},
-		{
-			name: "defaultLocalizedName long",
-			json: `{"defaultLocalizedName":"New York City Metropolitan Area"}`,
-			want: "New York City Metropolitan Area",
-		},
-		{
-			name: "geo text field",
-			json: `{"geo":{"text":"Seattle, Washington"}}`,
-			want: "Seattle, Washington",
-		},
-		{
-			name: "null location",
-			json: `{"geoLocationName":"null"}`,
-			want: "",
-		},
-		{
-			name: "empty response",
-			json: `{}`,
-			want: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractLocationFromGraphQLResponse([]byte(tt.json))
-			if got != tt.want {
-				t.Errorf("extractLocationFromGraphQLResponse() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseProfile_LocationExtraction(t *testing.T) {
-	// Test that location is extracted from defaultLocalizedNameWithoutCountryName in code blocks
-	// This mirrors real LinkedIn HTML where location data is embedded in JSON within <code> tags
-	html := `<!DOCTYPE html>
-<html>
-<head><title>Stephen Fox Jr. | LinkedIn</title></head>
-<body>
-<code id="bpr-guid-123">{"publicIdentifier":"stephen-fox-jr","firstName":"Stephen","lastName":"Fox Jr."}</code>
-<code id="bpr-guid-456">{"$type":"com.linkedin.voyager.dash.common.Geo","defaultLocalizedNameWithoutCountryName":"Greater Boston","*country":"urn:li:fsd_geo:103644278","entityUrn":"urn:li:fsd_geo:90000084"}</code>
-</body>
-</html>`
-
-	prof, err := parseProfile([]byte(html), "https://www.linkedin.com/in/stephen-fox-jr/")
-	if err != nil {
-		t.Fatalf("parseProfile() error = %v", err)
-	}
-
-	if prof.Location != "Greater Boston" {
-		t.Errorf("Location = %q, want %q", prof.Location, "Greater Boston")
-	}
-}
-
-func TestParseProfile_LocationFromDefaultLocalizedName(t *testing.T) {
-	// Test fallback to defaultLocalizedName when defaultLocalizedNameWithoutCountryName is not present
-	html := `<!DOCTYPE html>
-<html>
-<head><title>John Doe | LinkedIn</title></head>
-<body>
-<code id="bpr-guid-123">{"publicIdentifier":"johndoe","firstName":"John","lastName":"Doe"}</code>
-<code id="bpr-guid-456">{"$type":"com.linkedin.voyager.dash.common.Geo","defaultLocalizedName":"San Francisco Bay Area","entityUrn":"urn:li:fsd_geo:90000084"}</code>
-</body>
-</html>`
-
-	prof, err := parseProfile([]byte(html), "https://www.linkedin.com/in/johndoe/")
-	if err != nil {
-		t.Fatalf("parseProfile() error = %v", err)
-	}
-
-	if prof.Location != "San Francisco Bay Area" {
-		t.Errorf("Location = %q, want %q", prof.Location, "San Francisco Bay Area")
-	}
+	t.Run("normalizes_url", func(t *testing.T) {
+		prof, err := client.Fetch(ctx, "johndoe")
+		if err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if prof.URL != "https://www.linkedin.com/in/johndoe" {
+			t.Errorf("URL = %q, want normalized URL", prof.URL)
+		}
+	})
 }
