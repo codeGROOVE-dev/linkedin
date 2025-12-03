@@ -48,6 +48,7 @@ import (
 	"github.com/codeGROOVE-dev/sociopath/pkg/tiktok"
 	"github.com/codeGROOVE-dev/sociopath/pkg/twitter"
 	"github.com/codeGROOVE-dev/sociopath/pkg/vkontakte"
+	"github.com/codeGROOVE-dev/sociopath/pkg/weibo"
 	"github.com/codeGROOVE-dev/sociopath/pkg/youtube"
 )
 
@@ -143,6 +144,8 @@ func Fetch(ctx context.Context, url string, opts ...Option) (*profile.Profile, e
 		return fetchTikTok(ctx, url, cfg)
 	case vkontakte.Match(url):
 		return fetchVKontakte(ctx, url, cfg)
+	case weibo.Match(url):
+		return fetchWeibo(ctx, url, cfg)
 	case mastodon.Match(url):
 		return fetchMastodon(ctx, url, cfg)
 	default:
@@ -319,6 +322,28 @@ func fetchVKontakte(ctx context.Context, url string, cfg *config) (*profile.Prof
 	}
 
 	client, err := vkontakte.New(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return client.Fetch(ctx, url)
+}
+
+func fetchWeibo(ctx context.Context, url string, cfg *config) (*profile.Profile, error) {
+	var opts []weibo.Option
+	if len(cfg.cookies) > 0 {
+		opts = append(opts, weibo.WithCookies(cfg.cookies))
+	}
+	if cfg.browserCookies {
+		opts = append(opts, weibo.WithBrowserCookies())
+	}
+	if cfg.cache != nil {
+		opts = append(opts, weibo.WithHTTPCache(cfg.cache))
+	}
+	if cfg.logger != nil {
+		opts = append(opts, weibo.WithLogger(cfg.logger))
+	}
+
+	client, err := weibo.New(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -618,7 +643,7 @@ func isSocialPlatform(url string) bool {
 		reddit.Match(url) ||
 		youtube.Match(url) ||
 		substack.Match(url) ||
-		strings.Contains(strings.ToLower(url), "weibo.com") ||
+		weibo.Match(url) ||
 		strings.Contains(strings.ToLower(url), "zhihu.com") ||
 		bilibili.Match(url) ||
 		bluesky.Match(url) ||
@@ -740,6 +765,8 @@ func PlatformForURL(url string) string {
 		return "tiktok"
 	case vkontakte.Match(url):
 		return "vkontakte"
+	case weibo.Match(url):
+		return "weibo"
 	case mastodon.Match(url):
 		return "mastodon"
 	default:
@@ -776,6 +803,8 @@ func platformMatches(url, platform string) bool {
 		return tiktok.Match(url)
 	case "vkontakte":
 		return vkontakte.Match(url)
+	case "weibo":
+		return weibo.Match(url)
 	default:
 		return false
 	}

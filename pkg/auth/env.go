@@ -32,6 +32,10 @@ var platformEnvVars = map[string]map[string]string{
 	"vkontakte": {
 		"VK_REMIXSID": "remixsid",
 	},
+	"weibo": {
+		"WEIBO_SUB":  "SUB",
+		"WEIBO_SUBP": "SUBP",
+	},
 }
 
 // EnvSource reads cookies from environment variables.

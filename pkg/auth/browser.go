@@ -5,24 +5,32 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/browserutils/kooky"
 	_ "github.com/browserutils/kooky/browser/all" // Import all browser cookie stores
+	"github.com/browserutils/kooky/browser/chrome"
 	"github.com/browserutils/kooky/browser/firefox"
 )
 
 // platformDomains maps platform names to their cookie domains.
 var platformDomains = map[string]string{
-	"linkedin": "linkedin.com",
-	"twitter":  "x.com",
-	"tiktok":   "tiktok.com",
+	"instagram": "instagram.com",
+	"linkedin":  "linkedin.com",
+	"tiktok":    "tiktok.com",
+	"twitter":   "x.com",
+	"vkontakte": "vk.com",
+	"weibo":     "weibo.com",
 }
 
 // platformEssentialCookies maps platform names to their required cookie names.
 var platformEssentialCookies = map[string][]string{
-	"linkedin": {"li_at", "JSESSIONID", "lidc", "bcookie"},
-	"twitter":  {"auth_token", "ct0", "kdt", "twid", "att"},
-	"tiktok":   {"sessionid"},
+	"instagram": {"sessionid", "csrftoken"},
+	"linkedin":  {"li_at", "JSESSIONID", "lidc", "bcookie"},
+	"tiktok":    {"sessionid"},
+	"twitter":   {"auth_token", "ct0", "kdt", "twid", "att"},
+	"vkontakte": {"remixsid"},
+	"weibo":     {"SUB", "SUBP"},
 }
 
 // BrowserSource reads cookies from browser cookie stores.
@@ -45,8 +53,20 @@ func (s *BrowserSource) Cookies(ctx context.Context, platform string) (map[strin
 		return nil, nil //nolint:nilnil // no cookies for unknown platform is not an error
 	}
 
-	// Try Firefox profiles first (including Developer Edition)
-	cookies := s.tryFirefoxProfiles(ctx, domain, platform)
+	// Try Zen Browser first (Firefox-based, not auto-detected by kooky)
+	cookies := s.tryZenBrowser(ctx, domain, platform)
+	if len(cookies) > 0 {
+		return cookies, nil
+	}
+
+	// Try Chrome Canary (not auto-detected by kooky)
+	cookies = s.tryChromeCanary(ctx, domain, platform)
+	if len(cookies) > 0 {
+		return cookies, nil
+	}
+
+	// Try Firefox profiles (including Developer Edition)
+	cookies = s.tryFirefoxProfiles(ctx, domain, platform)
 	if len(cookies) > 0 {
 		return cookies, nil
 	}
@@ -63,6 +83,80 @@ func (s *BrowserSource) Cookies(ctx context.Context, platform string) (map[strin
 	}
 
 	return s.filterEssentialCookies(kookies, platform), nil
+}
+
+// tryZenBrowser attempts to read cookies from Zen Browser profiles (Firefox-based).
+func (s *BrowserSource) tryZenBrowser(ctx context.Context, domain, platform string) map[string]string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return nil
+	}
+
+	zenDir := filepath.Join(home, "Library", "Application Support", "zen", "Profiles")
+	pattern := filepath.Join(zenDir, "*", "cookies.sqlite")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+
+	for _, f := range matches {
+		kookies, err := firefox.ReadCookies(ctx, f, kooky.Valid, kooky.DomainHasSuffix(domain))
+		if err != nil {
+			s.logger.Debug("failed to read Zen Browser cookies",
+				"profile", filepath.Base(filepath.Dir(f)),
+				"platform", platform,
+				"error", err)
+			continue
+		}
+		if len(kookies) > 0 {
+			s.logger.Debug("found Zen Browser cookies",
+				"profile", filepath.Base(filepath.Dir(f)),
+				"platform", platform,
+				"count", len(kookies))
+			return s.filterEssentialCookies(kookies, platform)
+		}
+	}
+
+	return nil
+}
+
+// tryChromeCanary attempts to read cookies from Chrome Canary profiles.
+func (s *BrowserSource) tryChromeCanary(ctx context.Context, domain, platform string) map[string]string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return nil
+	}
+
+	canaryDir := filepath.Join(home, "Library", "Application Support", "Google", "Chrome Canary")
+	profiles := []string{"Default", "Profile 1", "Profile 2", "Profile 3", "Profile 4", "Profile 5"}
+
+	for _, profile := range profiles {
+		cookiesFile := filepath.Join(canaryDir, profile, "Cookies")
+		if _, err := os.Stat(cookiesFile); err != nil {
+			continue
+		}
+
+		kookies, err := chrome.ReadCookies(ctx, cookiesFile, kooky.Valid, kooky.DomainHasSuffix(domain))
+		if err != nil {
+			// Check for encryption errors and warn user
+			if strings.Contains(err.Error(), "encryption") || strings.Contains(err.Error(), "decrypt") {
+				s.logger.Warn("Chrome Canary cookies exist but cannot be decrypted",
+					"profile", profile,
+					"platform", platform,
+					"hint", "try using Firefox, Zen Browser, or set cookies via environment variables")
+			} else {
+				s.logger.Debug("failed to read Chrome Canary cookies", "profile", profile, "platform", platform, "error", err)
+			}
+			continue
+		}
+
+		if len(kookies) > 0 {
+			s.logger.Debug("found Chrome Canary cookies", "profile", profile, "platform", platform, "count", len(kookies))
+			return s.filterEssentialCookies(kookies, platform)
+		}
+	}
+
+	return nil
 }
 
 // tryFirefoxProfiles attempts to read cookies from Firefox profiles.
