@@ -189,7 +189,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// Pattern: Joined on 2023-04-06
 	joinedPattern := regexp.MustCompile(`Joined\s+on\s+(\d{4}-\d{2}-\d{2})`)
 	if m := joinedPattern.FindStringSubmatch(content); len(m) > 1 {
-		prof.Fields["joined"] = m[1]
+		prof.CreatedAt = m[1]
 	}
 
 	// Extract follower/following counts

@@ -169,12 +169,12 @@ func TestFetch_InvalidUsername(t *testing.T) {
 
 func TestParseHTML(t *testing.T) {
 	tests := []struct {
-		name         string
-		html         string
-		username     string
-		wantName     string
-		wantPronouns string
-		wantJoined   string
+		name          string
+		html          string
+		username      string
+		wantName      string
+		wantPronouns  string
+		wantCreatedAt string
 	}{
 		{
 			name: "full profile with pronouns",
@@ -185,10 +185,10 @@ func TestParseHTML(t *testing.T) {
 				<div>0 followers · 0 following</div>
 				<div>Joined on 2023-04-06</div>
 			</body></html>`,
-			username:     "johwhj",
-			wantName:     "Woohyun Joh",
-			wantPronouns: "he/him",
-			wantJoined:   "2023-04-06",
+			username:      "johwhj",
+			wantName:      "Woohyun Joh",
+			wantPronouns:  "he/him",
+			wantCreatedAt: "2023-04-06",
 		},
 		{
 			name: "profile without pronouns",
@@ -198,9 +198,9 @@ func TestParseHTML(t *testing.T) {
 				<span class="username">stephen-fox</span>
 				<div>Joined on 2025-02-15</div>
 			</body></html>`,
-			username:   "stephen-fox",
-			wantName:   "stephen-fox",
-			wantJoined: "2025-02-15",
+			username:      "stephen-fox",
+			wantName:      "stephen-fox",
+			wantCreatedAt: "2025-02-15",
 		},
 		{
 			name: "organization profile",
@@ -224,8 +224,8 @@ func TestParseHTML(t *testing.T) {
 			if tt.wantPronouns != "" && profile.Fields["pronouns"] != tt.wantPronouns {
 				t.Errorf("Pronouns = %q, want %q", profile.Fields["pronouns"], tt.wantPronouns)
 			}
-			if tt.wantJoined != "" && profile.Fields["joined"] != tt.wantJoined {
-				t.Errorf("Joined = %q, want %q", profile.Fields["joined"], tt.wantJoined)
+			if tt.wantCreatedAt != "" && profile.CreatedAt != tt.wantCreatedAt {
+				t.Errorf("Joined = %q, want %q", profile.CreatedAt, tt.wantCreatedAt)
 			}
 		})
 	}

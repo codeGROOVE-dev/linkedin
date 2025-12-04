@@ -47,17 +47,16 @@ type Profile struct {
 	Error         string `json:",omitempty"` // Error message if fetch failed (e.g., "login required")
 
 	// Core profile data
-	Username string `json:",omitempty"` // Handle/username (without @ prefix)
-	Name     string `json:",omitempty"` // Display name
-	Bio      string `json:",omitempty"` // Profile bio/description
-	Location string `json:",omitempty"` // Geographic location
-	Website  string `json:",omitempty"` // Personal website URL
+	Username  string `json:",omitempty"` // Handle/username (without @ prefix)
+	Name      string `json:",omitempty"` // Display name
+	Bio       string `json:",omitempty"` // Profile bio/description
+	Location  string `json:",omitempty"` // Geographic location
+	Website   string `json:",omitempty"` // Personal website URL
+	CreatedAt string `json:",omitempty"` // Account creation date (ISO timestamp)
+	UpdatedAt string `json:",omitempty"` // Most recent activity or profile update (ISO timestamp)
 
 	// Platform-specific fields
 	Fields map[string]string `json:",omitempty"` // Additional platform-specific data (headline, employer, etc.)
-
-	// Activity timestamp
-	LastActive string `json:",omitempty"` // ISO timestamp of last known activity (post, comment, etc.)
 
 	// For further crawling
 	SocialLinks []string `json:",omitempty"` // Other social media URLs detected on the profile

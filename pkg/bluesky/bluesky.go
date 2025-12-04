@@ -101,8 +101,8 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	// Fetch recent posts
 	posts, lastActive := c.fetchPosts(ctx, handle, 50)
 	p.Posts = posts
-	if lastActive != "" {
-		p.LastActive = lastActive
+	if lastActive != "" && lastActive > p.UpdatedAt {
+		p.UpdatedAt = lastActive
 	}
 
 	return p, nil
@@ -131,7 +131,7 @@ func parseAPIResponse(data []byte, urlStr, handle string) (*profile.Profile, err
 	}
 
 	if resp.CreatedAt != "" {
-		p.Fields["joined"] = resp.CreatedAt
+		p.CreatedAt = resp.CreatedAt
 	}
 
 	// Extract hashtags from bio

@@ -146,9 +146,9 @@ func parseHTML(data []byte, urlStr string) *profile.Profile {
 		p.Posts = posts
 		p.Platform = "blog"
 		if lastActive != "" {
-			p.LastActive = lastActive
+			p.UpdatedAt = lastActive
 		} else if len(posts) > 0 && posts[0].URL != "" {
-			p.LastActive = extractDateFromURL(posts[0].URL)
+			p.UpdatedAt = extractDateFromURL(posts[0].URL)
 		}
 	}
 

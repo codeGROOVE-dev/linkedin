@@ -155,8 +155,8 @@ func (c *Client) fetchViaAPI(ctx context.Context, host, username string) (*profi
 	if accountID != "" {
 		posts, lastActive := c.fetchStatuses(ctx, host, accountID, 50)
 		p.Posts = posts
-		if lastActive != "" {
-			p.LastActive = lastActive
+		if lastActive != "" && lastActive > p.UpdatedAt {
+			p.UpdatedAt = lastActive
 		}
 	}
 
@@ -209,6 +209,11 @@ func (*Client) parseAPIResponse(data []byte) (*profile.Profile, string, error) {
 
 	// Filter out same-server Mastodon links
 	p.SocialLinks = filterSameServerLinks(p.SocialLinks, p.URL)
+
+	// Add account creation date
+	if acc.CreatedAt != "" {
+		p.CreatedAt = acc.CreatedAt
+	}
 
 	return p, acc.ID, nil
 }

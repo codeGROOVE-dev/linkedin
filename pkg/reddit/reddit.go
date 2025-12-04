@@ -126,7 +126,7 @@ func parseProfile(html, url, username string) (*profile.Profile, error) {
 	// Extract cake day (account creation date)
 	cakeDayPattern := regexp.MustCompile(`(?i)redditor since.*?(\d{4})`)
 	if matches := cakeDayPattern.FindStringSubmatch(html); len(matches) > 1 {
-		prof.Fields["joined_year"] = matches[1]
+		prof.CreatedAt = matches[1] // Year only
 	}
 
 	// Extract posts and comments with subreddit context

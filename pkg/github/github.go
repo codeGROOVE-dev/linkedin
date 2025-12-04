@@ -335,6 +335,8 @@ func parseGraphQLResponse(data []byte, urlStr, _ string) (*profile.Profile, erro
 				Company        string `json:"company"`
 				WebsiteURL     string `json:"websiteUrl"`
 				TwitterUser    string `json:"twitterUsername"`
+				CreatedAt      string `json:"createdAt"`
+				UpdatedAt      string `json:"updatedAt"`
 				SocialAccounts struct {
 					Nodes []struct {
 						URL         string `json:"url"`
@@ -410,6 +412,14 @@ func parseGraphQLResponse(data []byte, urlStr, _ string) (*profile.Profile, erro
 		}
 	}
 
+	// Add account timestamps
+	if user.CreatedAt != "" {
+		prof.CreatedAt = user.CreatedAt
+	}
+	if user.UpdatedAt != "" {
+		prof.UpdatedAt = user.UpdatedAt
+	}
+
 	return prof, nil
 }
 
@@ -450,10 +460,10 @@ func (c *Client) doAPIRequest(ctx context.Context, req *http.Request) ([]byte, e
 	}
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // error ignored intentionally
 
-	// Parse rate limit headers (GitHub uses non-canonical casing, parse errors default to 0)
-	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing
+	// Parse rate limit headers (parse errors default to 0)
+	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing, parse errors acceptable
 	rateLimitRemain, _ := strconv.Atoi(resp.Header.Get("X-RateLimit-Remaining"))
-	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing
+	//nolint:errcheck,canonicalheader // GitHub uses non-canonical header casing, parse errors acceptable
 	rateLimitReset, _ := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64)
 	resetTime := time.Unix(rateLimitReset, 0)
 
@@ -638,6 +648,8 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 		AvatarURL   string `json:"avatar_url"`
 		HTMLURL     string `json:"html_url"`
 		Type        string `json:"type"`
+		CreatedAt   string `json:"created_at"`
+		UpdatedAt   string `json:"updated_at"`
 	}
 
 	if err := json.Unmarshal(data, &ghUser); err != nil {
@@ -720,6 +732,14 @@ func parseJSON(data []byte, urlStr, _ string) (*profile.Profile, error) {
 	// Add account type
 	if ghUser.Type != "" {
 		prof.Fields["type"] = ghUser.Type
+	}
+
+	// Add account timestamps
+	if ghUser.CreatedAt != "" {
+		prof.CreatedAt = ghUser.CreatedAt
+	}
+	if ghUser.UpdatedAt != "" {
+		prof.UpdatedAt = ghUser.UpdatedAt
 	}
 
 	return prof, nil

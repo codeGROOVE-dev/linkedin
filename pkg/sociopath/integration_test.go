@@ -82,10 +82,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*github.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "github",
-				URL:      "https://github.com/tstromberg",
-				Username: "tstromberg",
-				Name:     "Thomas Stromberg",
+				Platform:  "github",
+				URL:       "https://github.com/tstromberg",
+				Username:  "tstromberg",
+				Name:      "Thomas Stromberg",
+				CreatedAt: "2009-07-03T14:32:35Z",
 			},
 		},
 		{
@@ -103,10 +104,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*github.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "github",
-				URL:      "https://github.com/kentcdodds",
-				Username: "kentcdodds",
-				Name:     "Kent C. Dodds",
+				Platform:  "github",
+				URL:       "https://github.com/kentcdodds",
+				Username:  "kentcdodds",
+				Name:      "Kent C. Dodds",
+				CreatedAt: "2012-03-04T22:32:01Z",
 			},
 		},
 		{
@@ -124,10 +126,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*github.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "github",
-				URL:      "https://github.com/torvalds",
-				Username: "torvalds",
-				Name:     "Linus Torvalds",
+				Platform:  "github",
+				URL:       "https://github.com/torvalds",
+				Username:  "torvalds",
+				Name:      "Linus Torvalds",
+				CreatedAt: "2011-09-03T15:26:22Z",
 			},
 		},
 		{
@@ -145,10 +148,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*github.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "github",
-				URL:      "https://github.com/gvanrossum",
-				Username: "gvanrossum",
-				Name:     "Guido van Rossum",
+				Platform:  "github",
+				URL:       "https://github.com/gvanrossum",
+				Username:  "gvanrossum",
+				Name:      "Guido van Rossum",
+				CreatedAt: "2012-11-26T18:46:40Z",
 			},
 		},
 		{
@@ -166,10 +170,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*mastodon.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "mastodon",
-				URL:      "https://mastodon.social/@Gargron",
-				Username: "Gargron",
-				Name:     "Eugen Rochko",
+				Platform:  "mastodon",
+				URL:       "https://mastodon.social/@Gargron",
+				Username:  "Gargron",
+				Name:      "Eugen Rochko",
+				CreatedAt: "2016-03-16T00:00:00.000Z",
 			},
 		},
 		{
@@ -187,10 +192,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*mastodon.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "mastodon",
-				URL:      "https://mastodon.social/@dansup",
-				Username: "dansup",
-				Name:     "dansup",
+				Platform:  "mastodon",
+				URL:       "https://mastodon.social/@dansup",
+				Username:  "dansup",
+				Name:      "dansup",
+				CreatedAt: "2016-11-27T00:00:00.000Z",
 			},
 		},
 		{
@@ -208,14 +214,15 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*mastodon.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "mastodon",
-				URL:      "https://triangletoot.party/@thomrstrom",
-				Username: "thomrstrom",
-				Name:     "Thomas Strömberg",
-				Bio:      "KD4UHP - based out of Carrboro, NC\nfounder & CEO @ codeGROOVE\nformer Director of Security @ Chainguard & Xoogler\n#unix #infosec #bikes #carrboro #motorcycles #photography #hamradio",
+				Platform:  "mastodon",
+				URL:       "https://triangletoot.party/@thomrstrom",
+				Username:  "thomrstrom",
+				Name:      "Thomas Strömberg",
+				Bio:       "KD4UHP - based out of Carrboro, NC\nfounder & CEO @ codeGROOVE\nformer Director of Security @ Chainguard & Xoogler\n#unix #infosec #bikes #carrboro #motorcycles #photography #hamradio",
+				CreatedAt: "2022-11-03T00:00:00.000Z",
 			},
 			cmpOpts: []cmp.Option{
-				cmpopts.IgnoreFields(profile.Profile{}, "Location", "Website", "SocialLinks", "Fields", "LastActive", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
+				cmpopts.IgnoreFields(profile.Profile{}, "Location", "Website", "UpdatedAt", "SocialLinks", "Fields", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
 			},
 		},
 		{
@@ -233,10 +240,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*bluesky.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "bluesky",
-				URL:      "https://bsky.app/profile/bsky.app",
-				Username: "bsky.app",
-				Name:     "Bluesky",
+				Platform:  "bluesky",
+				URL:       "https://bsky.app/profile/bsky.app",
+				Username:  "bsky.app",
+				Name:      "Bluesky",
+				CreatedAt: "2023-04-12T04:53:57.057Z",
 			},
 		},
 		{
@@ -254,10 +262,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*bluesky.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "bluesky",
-				URL:      "https://bsky.app/profile/jack.bsky.social",
-				Username: "jack.bsky.social",
-				Name:     "jack",
+				Platform:  "bluesky",
+				URL:       "https://bsky.app/profile/jack.bsky.social",
+				Username:  "jack.bsky.social",
+				Name:      "jack",
+				CreatedAt: "2023-09-12T22:33:06.369Z",
 			},
 		},
 		{
@@ -275,10 +284,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*devto.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "devto",
-				URL:      "https://dev.to/tstromberg",
-				Username: "tstromberg",
-				Name:     "Thomas Strömberg",
+				Platform:  "devto",
+				URL:       "https://dev.to/tstromberg",
+				Username:  "tstromberg",
+				Name:      "Thomas Strömberg",
+				CreatedAt: "2020-12-05T17:05:35Z",
 			},
 		},
 		{
@@ -296,10 +306,11 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				return c.(*devto.Client).Fetch(ctx, url)
 			},
 			want: &profile.Profile{
-				Platform: "devto",
-				URL:      "https://dev.to/ben",
-				Username: "ben",
-				Name:     "Ben Halpern",
+				Platform:  "devto",
+				URL:       "https://dev.to/ben",
+				Username:  "ben",
+				Name:      "Ben Halpern",
+				CreatedAt: "2015-12-27T04:02:17Z",
 			},
 		},
 		{
@@ -622,7 +633,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				// Name, Bio, Location are empty when auth is broken
 			},
 			cmpOpts: []cmp.Option{
-				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "SocialLinks", "LastActive", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
+				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "CreatedAt", "UpdatedAt", "SocialLinks", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
 			},
 		},
 		{
@@ -647,7 +658,7 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				Username:      "mattmoor",
 			},
 			cmpOpts: []cmp.Option{
-				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "SocialLinks", "LastActive", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
+				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "CreatedAt", "UpdatedAt", "SocialLinks", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
 			},
 		},
 		{
@@ -672,13 +683,17 @@ func TestIntegrationLiveFetch(t *testing.T) {
 				Username:      "austen-bryan-23485a19",
 			},
 			cmpOpts: []cmp.Option{
-				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "SocialLinks", "LastActive", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
+				cmpopts.IgnoreFields(profile.Profile{}, "Fields", "Name", "Bio", "Location", "Website", "CreatedAt", "UpdatedAt", "SocialLinks", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
 			},
 		},
 	}
 
 	opts := []cmp.Option{
-		cmpopts.IgnoreFields(profile.Profile{}, "Bio", "Location", "Website", "Fields", "SocialLinks", "LastActive", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
+		// Ignore fields that change frequently or are platform-specific details
+		// Bio, Location, Website can be edited by users
+		// Fields, SocialLinks contain varying platform-specific data
+		// UpdatedAt, Posts, Unstructured change with activity
+		cmpopts.IgnoreFields(profile.Profile{}, "Bio", "Location", "Website", "Fields", "SocialLinks", "UpdatedAt", "Posts", "Unstructured", "IsGuess", "Confidence", "GuessMatch"),
 	}
 
 	for _, tt := range tests {

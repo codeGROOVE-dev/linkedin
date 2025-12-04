@@ -97,8 +97,8 @@ func (c *Client) Fetch(ctx context.Context, urlStr string) (*profile.Profile, er
 	// Fetch recent articles via API
 	posts, lastActive := c.fetchArticles(ctx, username, 50)
 	p.Posts = posts
-	if lastActive != "" {
-		p.LastActive = lastActive
+	if lastActive != "" && lastActive > p.UpdatedAt {
+		p.UpdatedAt = lastActive
 	}
 
 	return p, nil
@@ -145,8 +145,7 @@ func parseHTML(data []byte, urlStr, username string) *profile.Profile {
 	// Extract joined date
 	joinedPattern := regexp.MustCompile(`<time\s+datetime="([^"]+)"[^>]*>([^<]+)</time>`)
 	if m := joinedPattern.FindStringSubmatch(content); len(m) > 2 {
-		p.Fields["joined"] = strings.TrimSpace(m[2])
-		p.Fields["joined_datetime"] = m[1]
+		p.CreatedAt = m[1] // ISO datetime format
 	}
 
 	// Extract work/employment - look for <p>Work</p> followed by value
